@@ -1,0 +1,16 @@
+{
+  "name": "@v1/e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live end-to-end + adversarial security suites (run against a deployed stack).",
+  "type": "commonjs",
+  "scripts": {
+    "idor": "node p2-idor.js",
+    "auth": "node p2-auth.js",
+    "dashboard": "node p-sidebar.js && node p-feedback.js && node p-home.js && node p-notif.js && node p-cmdk.js && node p-paging.js && node p-sessions.js"
+  },
+  "devDependencies": {
+    "convex": "^1.19.2",
+    "playwright": "^1.48.0"
+  }
+}

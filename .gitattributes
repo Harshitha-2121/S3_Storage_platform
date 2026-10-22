@@ -1,0 +1,5 @@
+# Normalize line endings so cloned shell scripts / JS run on Linux regardless of host OS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,115 @@
+# ---------------------------------------------------------------------------
+# S3 Storage Platform — Git ignore rules
+# Stack: Bun + Turborepo + Next.js + Convex + RustFS (Docker) + Vitest + Playwright
+# ---------------------------------------------------------------------------
+
+# --- Dependencies (regenerable) ---
+node_modules/
+.pnp
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/versions
+.bun-install-cache/
+
+# --- Build output ---
+.next/
+out/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Convex ---
+# convex/_generated IS committed on purpose: CI runs `bun run typecheck`
+# without a running deployment, so the generated API types must be present.
+packages/backend/.convex/
+packages/backend/node_modules/
+
+# --- Testing / coverage ---
+coverage/
+.nyc_output/
+playwright-report/
+blob-report/
+test-results/
+.playwright/
+e2e/artifacts/
+e2e/screenshots/
+
+# --- Environment variables & secrets (NEVER commit real values) ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+!packages/backend/convex/_generated/*.key
+
+# --- Logs & runtime output ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.pid
+*.seed
+
+# --- OS files ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# --- Python (local verification tooling) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+
+# --- Local scratch & one-off debugging helpers ---
+# These contain machine-specific absolute paths or one-off debug logic.
+/jwks-test.mjs
+/run_convex.py
+/backend-echo/*.local.mjs
+/inspect_*.py
+
+# --- Local database dumps (contain live user/auth data — never commit) ---
+/convex_db.sqlite3
+*.sqlite3
+*.db
+
+# --- Deployment scratch scripts ---
+# `deploy/_*.sh` are one-off, machine-specific scripts (hardcoded PIDs/ports).
+deploy/_*.sh
+deploy/*.local.sh
+
+# --- Daily / personal progress reports (kept locally, not in the repo) ---
+progress_report_*.txt
+prg*.txt
+*_DAILY_*.txt
+
+# --- Local RustFS / self-hosted state ---
+/self-hosted/data/
+/self-hosted/*.db
+/self-hosted/*.sqlite*
+
+# --- Excel / misc ---
+*.xlsx.utf8

@@ -1,0 +1,6 @@
+# Ensures Convex auto-starts on Docker boot / VM reboot (merged with docker-compose.yml).
+services:
+  backend:
+    restart: unless-stopped
+  dashboard:
+    restart: unless-stopped

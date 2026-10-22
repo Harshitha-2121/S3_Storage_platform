@@ -1,0 +1,96 @@
+================================================================================
+   S3_STORAGE vs AWS S3 — DOC-ANCHORED GAP REPORT (16-10-2026)
+================================================================================
+Sources (fetched live this session):
+  - https://docs.aws.amazon.com/s3/ (documentation hub)
+  - .../AmazonS3/latest/userguide/Welcome.html (User Guide feature index)
+  - .../AmazonS3/latest/API/API_Operations.html (full API action index)
+Scope: the S3 data-plane (object store). S3 Control / Tables / Vectors /
+Files / Outposts are separate AWS services no compatible store
+(including RustFS/MinIO) implements — excluded, not gaps.
+
+--------------------------------------------------------------------------------
+1. CORE STORAGE — HAVE ✅
+--------------------------------------------------------------------------------
+Buckets, objects, keys/prefixes, content-type metadata, private-by-default.
+Covered live: ListBuckets, CreateBucket, DeleteBucket, ListObjectsV2,
+GetObject, PutObject, DeleteObject, HeadObject, CopyObject,
+PutBucketCors (auto-applied), SigV4 header + presigned-query auth.
+Note: AWS has a native RenameObject action — the app's rename button is
+S3-legitimate, not just app sugar.
+
+--------------------------------------------------------------------------------
+2. ACCESS METHODS — HAVE ALL FOUR DOC PATTERNS ✅
+--------------------------------------------------------------------------------
+Console (≈ app dashboard), CLI (custom endpoint + keys), SDKs (boto3
+proven), REST (SigV4 gateway). All verified working this week.
+
+--------------------------------------------------------------------------------
+3. PARTIAL ⚠️
+--------------------------------------------------------------------------------
+- Multipart upload: backend primitives exist in rustfs.ts
+  (create/uploadPart/complete/abort) but the gateway has no
+  Uploads/UploadId/PartNumber routing (6 distinct doc actions:
+  CreateMultipartUpload, UploadPart, CompleteMultipartUpload,
+  AbortMultipartUpload, ListParts, ListMultipartUploads).
+- Range GETs: likely proxy passthrough, never verified.
+- Logging/monitoring: the app audit log ≈ CloudTrail's API trail
+  (fair claim); per-bucket access logs, CloudWatch-style metrics absent.
+- Consistency model: docs promise strong read-after-write + atomic
+  single-key updates + last-writer-wins. Never explicitly tested here.
+
+--------------------------------------------------------------------------------
+4. MISSING ❌ — BY DOC CATEGORY
+--------------------------------------------------------------------------------
+VERSIONING (doc flagship; biggest gap):
+  PutBucketVersioning, GetBucketVersioning, ListObjectVersions,
+  version IDs, delete-markers.
+
+OBJECT OPERATIONS:
+  DeleteObjects (multi-delete), GetObjectAttributes, GetObjectTorrent,
+  UploadPartCopy, SelectObjectContent, RestoreObject,
+  Put/Get/DeleteObjectTagging, Get/PutObjectAcl,
+  Put/GetObjectRetention, Put/GetObjectLegalHold,
+  PutObjectLockConfiguration, Put/Get/DeleteObjectAnnotation(s),
+  ListObjects (V1), ListObjectVersions.
+
+BUCKET OPERATIONS:
+  Policy/ownership/access: Put/Get/DeleteBucketPolicy,
+  Put/GetBucketAcl, Put/GetBucketOwnershipControls,
+  GetBucketPolicyStatus, Put/Get/DeletePublicAccessBlock,
+  Put/GetBucketAbac.
+  Tagging/encryption/lifecycle/logging: Put/Get/DeleteBucketTagging,
+  Put/Get/DeleteBucketEncryption, Put/Get/DeleteBucketLifecycle(+Configuration),
+  Put/GetBucketLogging, Put/GetBucketNotification(+Configuration),
+  Put/Get/DeleteBucketReplication, Put/GetBucketWebsite,
+  Put/GetBucketAccelerateConfiguration, Put/GetBucketRequestPayment.
+  Observability configs: analytics, metrics, inventory,
+  intelligent-tiering families. Metadata/journal tables (newest AWS).
+  Compat nits: GetBucketLocation, HeadBucket, Get/DeleteBucketCors
+  (app only PUTs CORS).
+
+STORAGE CLASSES: Standard/IA/OneZone-IA/Intelligent-Tiering/
+Glacier×3/Express One Zone — app is effectively single-class.
+DATA PROCESSING: Object Lambda, Event notifications (S3→SNS/SQS/Lambda).
+  (App platform Events card is internal job plumbing, not this.)
+ANALYTICS: Storage Lens, Storage Class Analysis, Inventory reports.
+BUCKET TYPES: directory/table/vector — separate services; out of scope.
+
+--------------------------------------------------------------------------------
+5. APP DIFFERENTIATORS (AWS LACKS THESE — KEEP) ✅
+--------------------------------------------------------------------------------
+Workspaces/invites/RBAC, quotas, audit log, platform sk_ keys, jobs
+pipeline with webhook+events, dashboard. This is the product, not a gap.
+
+--------------------------------------------------------------------------------
+6. RECOMMENDED BUILD ORDER
+--------------------------------------------------------------------------------
+1. Versioning (unlocks ListObjectVersions + delete-markers).
+2. Tagging (object + bucket quartets; high SDK-compat value).
+3. Multipart over gateway (wire existing primitives to
+   Uploads/UploadId/PartNumber routing; unlocks large files).
+4. Then: DeleteObjects, bucket policy/ownership controls,
+   GetBucketLocation + HeadBucket (afternoon-sized compat wins).
+================================================================================
+END — generated 16-10-2026 from live AWS docs + codebase inventory.
+================================================================================

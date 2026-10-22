@@ -1,0 +1,116 @@
+services:
+  backend:
+    # Change this to :${REV} if you want to pin to a specific version
+    image: ghcr.io/get-convex/convex-backend:latest
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${PORT:-3210}:3210"
+      - "${SITE_PROXY_PORT:-3211}:3211"
+      - "${OIDC_FIX_PORT:-3220}:3220"
+    volumes:
+      - data:/convex/data
+    environment:
+      - ACTIONS_USER_TIMEOUT_SECS
+      - APPLICATION_MAX_CONCURRENT_MUTATIONS=${APPLICATION_MAX_CONCURRENT_MUTATIONS:-16}
+      - APPLICATION_MAX_CONCURRENT_NODE_ACTIONS=${APPLICATION_MAX_CONCURRENT_NODE_ACTIONS:-16}
+      - APPLICATION_MAX_CONCURRENT_QUERIES=${APPLICATION_MAX_CONCURRENT_QUERIES:-16}
+      - APPLICATION_MAX_CONCURRENT_V8_ACTIONS=${APPLICATION_MAX_CONCURRENT_V8_ACTIONS:-16}
+      - AWS_ACCESS_KEY_ID
+      - AWS_REGION
+      - AWS_S3_DISABLE_CHECKSUMS
+      - AWS_S3_DISABLE_SSE
+      - AWS_S3_FORCE_PATH_STYLE
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - CONVEX_CLOUD_ORIGIN=${CONVEX_CLOUD_ORIGIN:-http://127.0.0.1:${PORT:-3210}}
+      - CONVEX_RELEASE_VERSION_DEV
+      - CONVEX_SITE_ORIGIN=${CONVEX_SITE_ORIGIN:-http://127.0.0.1:${SITE_PROXY_PORT:-3211}}
+      - DATABASE_URL
+      - DISABLE_BEACON
+      - DISABLE_METRICS_ENDPOINT=${DISABLE_METRICS_ENDPOINT:-true} # Enable if you want prometheus compatible /metrics endpoint
+      - DOCUMENT_RETENTION_DELAY=${DOCUMENT_RETENTION_DELAY:-172800} # Lower default document retention to 2 days
+      - DO_NOT_REQUIRE_SSL
+      - HTTP_SERVER_TIMEOUT_SECONDS
+      - INSTANCE_NAME
+      - INSTANCE_SECRET
+      - MYSQL_URL
+      - POSTGRES_URL
+      - REDACT_LOGS_TO_CLIENT
+      - RUST_BACKTRACE
+      - RUST_LOG=${RUST_LOG:-info}
+      - S3_ENDPOINT_URL
+      - S3_STORAGE_EXPORTS_BUCKET
+      - S3_STORAGE_FILES_BUCKET
+      - S3_STORAGE_MODULES_BUCKET
+      - S3_STORAGE_SEARCH_BUCKET
+      - S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET
+
+    healthcheck:
+      test: curl -f http://localhost:3210/version
+      interval: 5s
+      start_period: 10s
+
+  # Local-dev workaround for a convex-backend image bug: its site proxy serves
+  # an INVALID JWKS document (unquoted JSON keys) plus truncated OIDC metadata,
+  # so backend OIDC discovery fails ("AuthProviderDiscoveryFailed") and no
+  # login can complete. This sidecar shares the backend's network namespace
+  # (so 127.0.0.1:3220 resolves from inside the backend container), serves a
+  # complete/valid metadata + repaired JWKS, and reverse-proxies everything
+  # else to the real site proxy. Enabled via CONVEX_SITE_ORIGIN below.
+  oidc-fix:
+    image: node:20-alpine
+    stop_grace_period: 5s
+    stop_signal: SIGINT
+    network_mode: "service:backend"
+    volumes:
+      - ./oidc-fix-proxy.mjs:/work/oidc-fix-proxy.mjs:ro
+    environment:
+      - OIDC_FIX_PORT=${OIDC_FIX_PORT:-3220}
+      - REAL_SITE_ORIGIN=http://127.0.0.1:${SITE_PROXY_PORT:-3211}
+      - PUBLIC_SITE_ORIGIN=${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3220}
+    command: ["node", "/work/oidc-fix-proxy.mjs"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # RustFS object storage. Data lives in the external `rustfs-data` volume,
+  # which is preserved across recreates/upgrades (never deleted by compose).
+  # Same-network as the backend so Convex actions reach it via http://rustfs:9000.
+  rustfs:
+    image: rustfs/rustfs:latest
+    entrypoint: ["/entrypoint.sh"]
+    command: ["/data"]
+    stop_grace_period: 30s
+    stop_signal: SIGINT
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rustfs-data:/data
+    environment:
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY}
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_CONSOLE_ADDRESS=:9001
+    restart: unless-stopped
+
+  dashboard:
+    # Change this to :${REV} if you want to pin to a specific version
+    image: ghcr.io/get-convex/convex-dashboard:latest
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${DASHBOARD_PORT:-6791}:6791"
+    environment:
+      - NEXT_PUBLIC_DEPLOYMENT_URL=${NEXT_PUBLIC_DEPLOYMENT_URL:-http://127.0.0.1:${PORT:-3210}}
+      - NEXT_PUBLIC_LOAD_MONACO_INTERNALLY
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  data:
+  rustfs-data:
+    external: true
