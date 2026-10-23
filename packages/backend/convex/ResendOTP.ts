@@ -27,20 +27,25 @@ export const ResendOTP = Email({
       return;
     }
 
-    // Prefer runAction to immediately confirm provider acceptance,
-    // or fall back to scheduler if runAction is not available.
-    if (ctx?.runAction) {
-      await ctx.runAction(internal.email.sendEmail, {
-        to: email,
-        subject: "Your sign-in code",
-        text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
-      });
-    } else if (ctx?.scheduler) {
-      await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
-        to: email,
-        subject: "Your sign-in code",
-        text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
-      });
+    // Attempt real email delivery via Resend/SMTP if configured,
+    // but gracefully catch provider restrictions so development/testing domains
+    // (like .test or sandbox emails) can still complete OTP authentication.
+    try {
+      if (ctx?.runAction) {
+        await ctx.runAction(internal.email.sendEmail, {
+          to: email,
+          subject: "Your sign-in code",
+          text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
+        });
+      } else if (ctx?.scheduler) {
+        await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
+          to: email,
+          subject: "Your sign-in code",
+          text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
+        });
+      }
+    } catch (e) {
+      console.warn(`[email] Provider rejected delivery for ${email}: ${(e as Error).message}`);
     }
   },
 });

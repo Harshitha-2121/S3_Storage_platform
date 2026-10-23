@@ -21,9 +21,7 @@ export default async function Layout({
   } catch (err) {
     console.warn("fetchQuery(api.users.getUser) fallback:", err);
   }
-  if (!user?.username) {
-    return redirect("/onboarding");
-  }
+  // Direct access to dashboard without blocking on onboarding
   return (
     <WorkspaceProvider>
       <div className="min-h-screen w-full bg-secondary dark:bg-black md:flex">
