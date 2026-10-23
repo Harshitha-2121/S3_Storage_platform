@@ -8,7 +8,7 @@ import { internal } from "./_generated/api";
 type Ctx = { runAction: (ref: unknown, args: unknown) => Promise<unknown> };
 
 function genCode() {
-  const b = new Uint8Array(8);
+  const b = new Uint8Array(6);
   crypto.getRandomValues(b);
   return Array.from(b, (x) => (x % 10).toString()).join("");
 }

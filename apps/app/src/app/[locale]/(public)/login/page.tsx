@@ -60,11 +60,16 @@ export default function Page() {
         setError("An account with this email already exists. Please log in or reset your password.");
       } else if (/Password must be/i.test(errorText) || /Invalid password/i.test(errorText)) {
         setError("Password must be at least 8 characters and include uppercase, lowercase, and a number.");
+      } else if (/You can only send testing emails to your own email address/i.test(errorText) || /verify a domain at resend\.com/i.test(errorText)) {
+        setError(
+          "Email delivery restricted: Using Resend Sandbox mode (onboarding@resend.dev), emails can only be sent to the verified account owner (harshitha.olla@networkershome.com). To send to Temp-Mail or other external addresses, please verify a custom domain at resend.com/domains."
+        );
       } else if (/reading 'redirect'/.test(errorText)) {
         // @convex-dev/auth throws or returns a state whose client crashes reading .redirect
         if (context === "signup") {
-          // If this happens during initial signup, it's not a bad OTP code!
           setError("Could not complete registration. Please check your details and try again.");
+        } else if (context === "otp") {
+          setError("Failed to send OTP code. Please verify your email address or check provider configuration.");
         } else {
           setError("Invalid or expired code. Send a new code below and try again.");
         }
@@ -72,10 +77,6 @@ export default function Page() {
         setError("The verification code is incorrect or has expired. Please request a new code.");
       } else if (/Too many failed/i.test(errorText) || /rate limit/i.test(errorText)) {
         setError("Too many attempts. Please wait a few minutes before trying again.");
-      } else if (/You can only send testing emails to your own email address/i.test(errorText) || /verify a domain at resend\.com/i.test(errorText)) {
-        setError(
-          "Email delivery restricted: Using Resend Sandbox mode (onboarding@resend.dev), emails can only be sent to the verified account owner (harshitha.olla@networkershome.com). To send to Temp-Mail or external addresses, please verify your custom domain in Resend and configure RESEND_SENDER_EMAIL_AUTH."
-        );
       } else if (/Failed to fetch|NetworkError|Network request failed/i.test(errorText)) {
         setError("Network error. Please check your internet connection and verify the server is running.");
       } else {

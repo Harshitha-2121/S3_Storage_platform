@@ -11,7 +11,7 @@ export const ResendOTP = Email({
   apiKey: process.env.RESEND_API_KEY,
   maxAge: 60 * 15, // code valid for 15 minutes
   async generateVerificationToken() {
-    const bytes = new Uint8Array(8);
+    const bytes = new Uint8Array(6);
     crypto.getRandomValues(bytes);
     return Array.from(bytes, (b) => (b % 10).toString()).join("");
   },
