@@ -10,6 +10,14 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  async rewrites() {
+    return [
+      {
+        source: "/api/convex/:path*",
+        destination: "http://127.0.0.1:3210/:path*",
+      },
+    ];
+  },
 };
 
 export default withSentryConfig(nextConfig, {
