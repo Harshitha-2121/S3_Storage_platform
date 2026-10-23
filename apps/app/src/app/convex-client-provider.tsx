@@ -7,7 +7,8 @@ import type { ReactNode } from "react";
 
 const getConvexUrl = () => {
   if (typeof window !== "undefined") {
-    return `${window.location.origin}/api/convex`;
+    // Connect directly via dedicated Cloudflare tunnel to backend Convex server
+    return "https://conversation-continued-spectacular-tiles.trycloudflare.com";
   }
   return env.NEXT_PUBLIC_CONVEX_URL;
 };
