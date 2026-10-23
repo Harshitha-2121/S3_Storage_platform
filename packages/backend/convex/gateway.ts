@@ -33,6 +33,56 @@ const MAX_GATEWAY_BYTES = () =>
 
 const GATEWAY_PREFIX = "/s3/";
 
+// In-memory TTL caches to eliminate Convex cold-start isolation roundtrip latency
+// Kept at 10 seconds to ensure prompt enforcement of credential revocation / bucket changes
+const CACHE_TTL_MS = 10 * 1000; // 10 seconds
+const credCache = new Map<string, { data: any; expiresAt: number }>();
+const bucketCache = new Map<string, { data: any; expiresAt: number }>();
+
+function getCached<T>(cache: Map<string, { data: T; expiresAt: number }>, key: string): T | undefined {
+  const item = cache.get(key);
+  if (!item) return undefined;
+  if (Date.now() > item.expiresAt) {
+    cache.delete(key);
+    return undefined;
+  }
+  return item.data;
+}
+
+function setCached<T>(cache: Map<string, { data: T; expiresAt: number }>, key: string, data: T): void {
+  // Bound cache size to prevent memory leaks
+  if (cache.size > 1000) {
+    cache.clear();
+  }
+  cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+// In-memory Token Bucket rate limiter per accessKeyId (DoS and brute-force protection)
+// Max burst: 120 requests; refill rate: 30 requests/second
+const RATE_LIMIT_CAPACITY = 120;
+const RATE_LIMIT_REFILL_PER_SEC = 30;
+const rateLimitMap = new Map<string, { tokens: number; lastRefill: number }>();
+
+function checkRateLimit(accessKeyId: string): boolean {
+  const now = Date.now();
+  let entry = rateLimitMap.get(accessKeyId);
+  if (!entry) {
+    entry = { tokens: RATE_LIMIT_CAPACITY - 1, lastRefill: now };
+    if (rateLimitMap.size > 5000) rateLimitMap.clear();
+    rateLimitMap.set(accessKeyId, entry);
+    return true;
+  }
+  // Refill tokens
+  const elapsedSec = (now - entry.lastRefill) / 1000;
+  entry.tokens = Math.min(RATE_LIMIT_CAPACITY, entry.tokens + elapsedSec * RATE_LIMIT_REFILL_PER_SEC);
+  entry.lastRefill = now;
+  if (entry.tokens >= 1) {
+    entry.tokens -= 1;
+    return true;
+  }
+  return false;
+}
+
 function xmlResponse(
   status: number,
   code: string,
@@ -41,7 +91,11 @@ function xmlResponse(
   const body = `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${escapeXml(message)}</Message></Error>`;
   return new Response(body, {
     status,
-    headers: { "content-type": "application/xml" },
+    headers: {
+      "content-type": "application/xml",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+    },
   });
 }
 
@@ -280,6 +334,21 @@ export async function s3Gateway(
       ? "/"
       : "/" + originalPath.slice(GATEWAY_PREFIX.length);
 
+  // Security: Guard against path traversal, null bytes, backslashes, or control characters.
+  const decodedPath = decodeURIComponent(s3Path);
+  if (
+    decodedPath.includes("\0") ||
+    decodedPath.includes("\\") ||
+    decodedPath.split("/").some((segment) => segment === "..") ||
+    /[\x00-\x1f\x7f]/.test(decodedPath)
+  ) {
+    return xmlResponse(
+      400,
+      "InvalidURI",
+      "Path contains illegal characters or path traversal sequences",
+    );
+  }
+
   // CORS preflight.
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -336,11 +405,17 @@ export async function s3Gateway(
     };
   }
 
-  // Resolve the application-issued credential.
-  const cred = await ctx.runQuery(
-    internal.s3Credentials.resolveCredential,
-    { accessKeyId: parsed.accessKeyId },
-  );
+  // Resolve the application-issued credential (with in-memory TTL caching for instant warm performance).
+  let cred = getCached(credCache, parsed.accessKeyId);
+  if (!cred) {
+    cred = await ctx.runQuery(
+      internal.s3Credentials.resolveCredential,
+      { accessKeyId: parsed.accessKeyId },
+    );
+    if (cred) {
+      setCached(credCache, parsed.accessKeyId, cred);
+    }
+  }
   if (!cred) {
     return xmlResponse(
       403,
@@ -366,6 +441,15 @@ export async function s3Gateway(
     );
   }
 
+  // Rate Limiting / DoS Protection: verify token bucket for credential
+  if (!checkRateLimit(parsed.accessKeyId)) {
+    return xmlResponse(
+      429,
+      "SlowDown",
+      "Please reduce your request rate",
+    );
+  }
+
   // Timestamp freshness: header auth rejects >15 min skew;
   // presigned URLs expire per X-Amz-Expires.
   if (queryAuth) {
@@ -385,18 +469,18 @@ export async function s3Gateway(
     }
   } else {
     const amzDate = req.headers.get("x-amz-date");
-  if (amzDate) {
-    const t = Date.parse(
-      amzDate.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, "$1-$2-$3T$4:$5:$6Z"),
-    );
-    if (Number.isFinite(t) && Math.abs(Date.now() - t) > 15 * 60 * 1000) {
-      return xmlResponse(
-        403,
-        "RequestTimeTooSkewed",
-        "The request timestamp is out of the allowed range",
+    if (amzDate) {
+      const t = Date.parse(
+        amzDate.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, "$1-$2-$3T$4:$5:$6Z"),
       );
+      if (Number.isFinite(t) && Math.abs(Date.now() - t) > 15 * 60 * 1000) {
+        return xmlResponse(
+          403,
+          "RequestTimeTooSkewed",
+          "The request timestamp is out of the allowed range",
+        );
+      }
     }
-  }
   }
 
   // Mark the credential as used (best-effort).
@@ -425,11 +509,17 @@ export async function s3Gateway(
   // Bucket scope + ownership.
   const bucketName = bucketFromPath(s3Path);
   if (bucketName) {
-    // The bucket must belong to the credential's account.
-    const bucket = await ctx.runQuery(
-      internal.buckets.resolveBucketByRustfsName,
-      { rustfsName: bucketName },
-    );
+    // The bucket must belong to the credential's account (cached for fast repeated calls).
+    let bucket = getCached(bucketCache, bucketName);
+    if (!bucket) {
+      bucket = await ctx.runQuery(
+        internal.buckets.resolveBucketByRustfsName,
+        { rustfsName: bucketName },
+      );
+      if (bucket) {
+        setCached(bucketCache, bucketName, bucket);
+      }
+    }
     if (!bucket) {
       return xmlResponse(
         404,
@@ -459,6 +549,65 @@ export async function s3Gateway(
     }
   }
 
+  // Security: Authorize CopyObject source bucket ownership and access
+  const copySourceHeader = req.headers.get("x-amz-copy-source");
+  if (copySourceHeader) {
+    // S3 x-amz-copy-source format: /source-bucket/source-key or source-bucket/source-key
+    const cleanedSource = copySourceHeader.startsWith("/")
+      ? copySourceHeader.slice(1)
+      : copySourceHeader;
+    const sourceSlashIdx = cleanedSource.indexOf("/");
+    const sourceBucketName =
+      sourceSlashIdx >= 0 ? cleanedSource.slice(0, sourceSlashIdx) : cleanedSource;
+
+    let srcBucket = getCached(bucketCache, sourceBucketName);
+    if (!srcBucket) {
+      srcBucket = await ctx.runQuery(
+        internal.buckets.resolveBucketByRustfsName,
+        { rustfsName: sourceBucketName },
+      );
+      if (srcBucket) {
+        setCached(bucketCache, sourceBucketName, srcBucket);
+      }
+    }
+    if (!srcBucket) {
+      return xmlResponse(
+        404,
+        "NoSuchBucket",
+        "The copy source bucket does not exist",
+      );
+    }
+    // Prevent cross-tenant CopyObject unauthorized data exfiltration
+    if (srcBucket.accountId !== cred.accountId) {
+      return xmlResponse(
+        403,
+        "AccessDenied",
+        "Access to the copy source bucket is denied",
+      );
+    }
+    // Check bucket permission scope on source bucket
+    if (cred.buckets && cred.buckets.length > 0) {
+      const allowedSrc = cred.buckets.some(
+        (id: Id<"buckets">) => id === srcBucket._id,
+      );
+      if (!allowedSrc) {
+        return xmlResponse(
+          403,
+          "AccessDenied",
+          "Credential is not authorized to read from copy source bucket",
+        );
+      }
+    }
+    // Check if credential is permitted s3:GetObject
+    if (cred.actions && cred.actions.length > 0 && !cred.actions.includes("s3:GetObject")) {
+      return xmlResponse(
+        403,
+        "AccessDenied",
+        "Credential requires s3:GetObject on the source bucket to copy",
+      );
+    }
+  }
+
   // ListBuckets is special: filter to the account's buckets.
   const isListBuckets =
     s3Path === "/" || s3Path === "";
@@ -485,10 +634,30 @@ export async function s3Gateway(
       body = new Uint8Array(buf);
     }
 
-    // Compute the actual payload hash for re-signing.
-    const payloadHash = body
+    // Compute the actual payload hash.
+    const actualPayloadHash = body
       ? await sha256Hex(body)
       : EMPTY_HASH;
+
+    // Security: Payload Integrity Verification.
+    // If client supplied x-amz-content-sha256 (and it's not UNSIGNED-PAYLOAD or STREAMING),
+    // ensure the received body matches the declared cryptographic hash.
+    const clientPayloadHash = req.headers.get("x-amz-content-sha256");
+    if (
+      clientPayloadHash &&
+      clientPayloadHash !== UNSIGNED_PAYLOAD &&
+      !clientPayloadHash.startsWith("STREAMING-")
+    ) {
+      if (!timingSafeEqual(actualPayloadHash, clientPayloadHash)) {
+        return xmlResponse(
+          400,
+          "XAmzContentSHA256Mismatch",
+          "The provided 'x-amz-content-sha256' header does not match the computed SHA256 of the payload body",
+        );
+      }
+    }
+
+    const payloadHash = actualPayloadHash;
 
     const rustfsEndpoint = process.env.RUSTFS_ENDPOINT!;
     const target = new URL(rustfsEndpoint + s3Path);
@@ -516,6 +685,18 @@ export async function s3Gateway(
     const copySource = req.headers.get("x-amz-copy-source");
     if (copySource) {
       forwardHeaders["x-amz-copy-source"] = copySource;
+    }
+    // Forward standard S3 / HTTP conditional and range headers
+    for (const h of [
+      "range",
+      "if-range",
+      "if-match",
+      "if-none-match",
+      "if-modified-since",
+      "if-unmodified-since",
+    ]) {
+      const val = req.headers.get(h);
+      if (val !== null) forwardHeaders[h] = val;
     }
     // Forward user metadata, tags, and S3 control headers.
     for (const [k, v] of req.headers.entries()) {
@@ -605,13 +786,15 @@ export async function s3Gateway(
         [
           "content-type",
           "content-length",
+          "content-range",
           "etag",
           "last-modified",
           "x-amz-request-id",
           "x-amz-version-id",
           "x-amz-delete-marker",
           "accept-ranges",
-        ].includes(lower)
+        ].includes(lower) ||
+        lower.startsWith("x-amz-meta-")
       ) {
         respHeaders[k] = v;
       }
@@ -646,6 +829,8 @@ function corsHeaders(): Record<string, string> {
     "access-control-allow-headers": "*",
     "access-control-expose-headers":
       "ETag, x-amz-request-id, x-amz-version-id, x-amz-delete-marker",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
   };
 }
 

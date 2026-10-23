@@ -13,7 +13,7 @@ auth.addHttpRoutes(http);
 // Convex normalizes HEAD to GET for route lookup, but the
 // handler still receives the original request method, so HEAD
 // (HeadObject) is forwarded to RustFS as HEAD.
-for (const method of ["GET", "PUT", "POST", "DELETE"] as const) {
+for (const method of ["GET", "PUT", "POST", "DELETE", "OPTIONS"] as const) {
   http.route({
     pathPrefix: "/s3/",
     method,

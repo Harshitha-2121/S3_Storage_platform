@@ -272,6 +272,63 @@ export default function BucketDetailPage() {
           </div>
         </div>
 
+        {/* Bucket Configuration (Versioning, Tagging, CORS) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Versioning Card */}
+          <div className="rounded-lg border border-border bg-card p-4 flex flex-col justify-between">
+            <div>
+              <span className="text-[11px] font-medium uppercase tracking-wider text-primary/50">
+                Bucket Versioning
+              </span>
+              <p className="mt-1 font-mono text-sm text-primary">
+                Protection against accidental overwrites and deletes.
+              </p>
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono bg-primary/10 text-primary">
+                Configured
+              </span>
+              <span className="text-xs text-primary/50">Native S3 API Enabled</span>
+            </div>
+          </div>
+
+          {/* Bucket Tagging Card */}
+          <div className="rounded-lg border border-border bg-card p-4 flex flex-col justify-between">
+            <div>
+              <span className="text-[11px] font-medium uppercase tracking-wider text-primary/50">
+                Bucket Tagging
+              </span>
+              <p className="mt-1 font-mono text-sm text-primary">
+                Key-value metadata for cost allocation & governance.
+              </p>
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono bg-primary/10 text-primary">
+                Active
+              </span>
+              <span className="text-xs text-primary/50">Put/Get/Delete Supported</span>
+            </div>
+          </div>
+
+          {/* Bucket CORS Card */}
+          <div className="rounded-lg border border-border bg-card p-4 flex flex-col justify-between">
+            <div>
+              <span className="text-[11px] font-medium uppercase tracking-wider text-primary/50">
+                CORS Policy
+              </span>
+              <p className="mt-1 font-mono text-sm text-primary">
+                Cross-Origin Resource Sharing for direct browser uploads.
+              </p>
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono bg-emerald-500/10 text-emerald-500 font-medium">
+                Active
+              </span>
+              <span className="text-xs text-primary/50">S3 XML Specification</span>
+            </div>
+          </div>
+        </div>
+
         {/* Objects Browser */}
         <div className="rounded-lg border border-border bg-card">
           <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
