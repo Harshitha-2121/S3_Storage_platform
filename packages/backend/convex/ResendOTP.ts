@@ -27,24 +27,20 @@ export const ResendOTP = Email({
       return;
     }
 
-    // Use scheduler.runAfter(0) if available to avoid mutation timeout,
-    // otherwise fall back to runAction directly.
-    try {
-      if (ctx?.scheduler) {
-        await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
-          to: email,
-          subject: "Your sign-in code",
-          text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
-        });
-      } else if (ctx?.runAction) {
-        await ctx.runAction(internal.email.sendEmail, {
-          to: email,
-          subject: "Your sign-in code",
-          text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
-        });
-      }
-    } catch (e) {
-      console.warn(`[email] OTP send failed: ${(e as Error).message}`);
+    // Prefer runAction to immediately confirm provider acceptance,
+    // or fall back to scheduler if runAction is not available.
+    if (ctx?.runAction) {
+      await ctx.runAction(internal.email.sendEmail, {
+        to: email,
+        subject: "Your sign-in code",
+        text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
+      });
+    } else if (ctx?.scheduler) {
+      await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
+        to: email,
+        subject: "Your sign-in code",
+        text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
+      });
     }
   },
 });

@@ -20,22 +20,18 @@ async function send(
 ) {
   console.warn(`[auth] ${label} code for ${email}: ${token}`); // dev fallback
   if (process.env.RESEND_API_KEY || process.env.SMTP_HOST) {
-    try {
-      if (ctx?.scheduler) {
-        await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
-          to: email,
-          subject: `Your ${label} code`,
-          text: `Your ${label} code is ${token}`,
-        });
-      } else if (ctx?.runAction) {
-        await ctx.runAction(internal.email.sendEmail, {
-          to: email,
-          subject: `Your ${label} code`,
-          text: `Your ${label} code is ${token}`,
-        });
-      }
-    } catch (e) {
-      console.warn(`[email] ${label} send failed: ${(e as Error).message}`);
+    if (ctx?.runAction) {
+      await ctx.runAction(internal.email.sendEmail, {
+        to: email,
+        subject: `Your ${label} code`,
+        text: `Your ${label} code is ${token}`,
+      });
+    } else if (ctx?.scheduler) {
+      await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
+        to: email,
+        subject: `Your ${label} code`,
+        text: `Your ${label} code is ${token}`,
+      });
     }
   }
 }

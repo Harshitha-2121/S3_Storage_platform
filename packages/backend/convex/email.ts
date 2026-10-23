@@ -47,7 +47,14 @@ export const sendEmail = internalAction({
       if (!res.ok) {
         const err = await res.text();
         console.error(`[email] Resend error: ${res.status} ${err}`);
-        throw new Error(`Resend send failed: ${res.status}`);
+        let parsedMessage = `Email delivery failed (${res.status})`;
+        try {
+          const errJson = JSON.parse(err);
+          if (errJson?.message) {
+            parsedMessage = errJson.message;
+          }
+        } catch {}
+        throw new Error(parsedMessage);
       }
       // Log the Resend message id so delivery can be traced in the
       // Resend dashboard (Emails log) per recipient.
