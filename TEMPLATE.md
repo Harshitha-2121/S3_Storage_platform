@@ -35,7 +35,7 @@ Two planes:
 
 ## What's included
 
-- **Auth** — passwordless magic email OTP (Convex Auth + Resend), issues RS256 JWTs + JWKS
+- **Auth** - passwordless magic email OTP (Convex Auth + Ollastack), issues RS256 JWTs + JWKS
 - **Users / Orgs / RBAC** — `users`, `workspaces`, `members` (owner/admin/member), `invites`, `requireRole`
 - **Jobs** — async/AI task primitive with a live dashboard page (create → backend → webhook → done)
 - **Usage metering**, **API keys** (+ `/api/verify-key`), **Audit log**, **Billing** (Polar)
@@ -49,7 +49,7 @@ Two planes:
    ```bash
    sudo HOST=<vm-ip-or-domain> bash deploy/setup.sh
    ```
-4. Open `http://<host>:3000`, sign in (OTP is shown in the Convex dashboard logs at `:6791` until you set `RESEND_API_KEY`), set a username, and you're in.
+4. Open `http://<host>:3000`, sign in (OTP is logged to the Convex dashboard only until `OLLASTACK_API_KEY` is set on the deployment), set a username, and you're in.
 
 `deploy/setup.sh` is idempotent for keys/secrets (won't clobber existing ones). The numbered
 `deploy/01`–`17` scripts are the individual steps it composes (kept for reference/debugging).
