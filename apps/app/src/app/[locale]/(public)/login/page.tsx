@@ -16,9 +16,11 @@ type View =
   | "admin-signin";
 
 const inputCls =
-  "w-full rounded-md border border-[#33333a] bg-[#121215] px-3 py-2.5 font-mono text-sm text-neutral-100 placeholder:text-[#6e8bff]/70 outline-none focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/60 disabled:opacity-60";
+  "h-11 w-full min-w-0 rounded-lg border border-[#303038] bg-[#131317] px-3.5 text-sm text-white placeholder:text-[#78849a] outline-none transition-colors focus-visible:border-[#899cbb] focus-visible:ring-2 focus-visible:ring-[#899cbb]/40 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
 const buttonCls =
-  "w-full rounded-md border border-[#33333a] bg-black px-3 py-2.5 text-sm font-medium text-neutral-100 outline-none hover:bg-[#141417] focus-visible:ring-2 focus-visible:ring-blue-500/60 disabled:cursor-not-allowed disabled:opacity-60";
+  "h-11 w-full rounded-lg border border-[#303038] bg-black px-3.5 text-sm font-medium text-white outline-none transition-colors hover:border-[#585862] hover:bg-[#19191e] focus-visible:ring-2 focus-visible:ring-[#899cbb] disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none";
+const linkCls =
+  "rounded-sm text-[#a6b2c6] underline decoration-[#596273] underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#899cbb] motion-reduce:transition-none";
 
 export default function Page() {
   const { signIn } = useAuthActions();
@@ -36,7 +38,11 @@ export default function Page() {
   const [resendCooldown, setResendCooldown] = useState(0);
 
   const switchTab = (t: Tab) => {
+    if (pending || t === tab) return;
     setTab(t);
+    setEmail("");
+    setPassword("");
+    setCode("");
     setError(null);
     setInfo(null);
     setView(t === "user" ? "otp" : "admin-signin");
@@ -202,40 +208,57 @@ export default function Page() {
   const showTabs = view === "otp" || view === "admin-signin";
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-black px-4 py-10">
-      <div className="w-full max-w-[344px] rounded-xl border border-[#26262b] bg-[#0b0b0d] px-8 py-8">
+    <main className="flex min-h-screen min-h-[100dvh] w-full items-center justify-center bg-black px-4 py-8 sm:px-6">
+      <section aria-label="Sign in" className="w-full max-w-[380px] rounded-2xl border border-[#292a30] bg-[#0c0c0f] px-6 py-8 shadow-[0_20px_65px_rgba(0,0,0,0.3)] sm:px-8 sm:py-9">
         <div className="flex justify-center">
-          <Logo size={60} />
+          <div className="rounded-full border border-white/20 bg-gradient-to-br from-white/20 via-[#343640] to-black p-[3px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.25),0_7px_18px_rgba(0,0,0,0.5)]">
+            <Logo size={52} />
+          </div>
         </div>
 
         {showTabs && (
           <div
             role="tablist"
             aria-label="Login type"
-            className="mt-6 grid grid-cols-2 gap-1 rounded-lg bg-[#1b1b1f] p-1 text-sm"
+            onKeyDown={(e) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) || pending) return;
+              e.preventDefault();
+              const next: Tab = e.key === "Home" ? "user" : e.key === "End" ? "admin" : tab === "user" ? "admin" : "user";
+              switchTab(next);
+              document.getElementById(`login-tab-${next}`)?.focus();
+            }}
+            className="mt-7 grid grid-cols-2 gap-1 rounded-lg border border-[#25262c] bg-[#17171b] p-1 text-sm"
           >
             <button
+              id="login-tab-user"
               type="button"
               role="tab"
               aria-selected={tab === "user"}
+              aria-controls="login-panel-user"
+              tabIndex={tab === "user" ? 0 : -1}
+              disabled={pending}
               onClick={() => switchTab("user")}
-              className={`rounded-md px-3 py-2 font-medium outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 ${
+              className={`min-h-10 rounded-md px-2 font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#899cbb] disabled:cursor-not-allowed motion-reduce:transition-none ${
                 tab === "user"
-                  ? "bg-black text-white shadow"
-                  : "text-neutral-400 hover:text-neutral-200"
+                  ? "border border-[#34343c] bg-[#08080a] text-white shadow-sm"
+                  : "border border-transparent text-[#9ba5b6] hover:text-white"
               }`}
             >
               User Login
             </button>
             <button
+              id="login-tab-admin"
               type="button"
               role="tab"
               aria-selected={tab === "admin"}
+              aria-controls="login-panel-admin"
+              tabIndex={tab === "admin" ? 0 : -1}
+              disabled={pending}
               onClick={() => switchTab("admin")}
-              className={`rounded-md px-3 py-2 font-medium outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 ${
+              className={`min-h-10 rounded-md px-2 font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#899cbb] disabled:cursor-not-allowed motion-reduce:transition-none ${
                 tab === "admin"
-                  ? "bg-black text-white shadow"
-                  : "text-neutral-400 hover:text-neutral-200"
+                  ? "border border-[#34343c] bg-[#08080a] text-white shadow-sm"
+                  : "border border-transparent text-[#9ba5b6] hover:text-white"
               }`}
             >
               Admin Login
@@ -244,14 +267,14 @@ export default function Page() {
         )}
 
         {view === "otp" && (
-          <div className="mt-6">
-            <h1 className="text-center text-lg font-semibold text-white">
+          <div id="login-panel-user" role="tabpanel" aria-labelledby="login-tab-user" className="mt-7">
+            <h1 className="text-center text-xl font-semibold tracking-tight text-white">
               User Portal OTP
             </h1>
-            <p className="mt-1 text-center text-sm text-neutral-400">
+            <p className="mt-2 text-center text-sm text-[#9aa9bc]">
               Enter your email to receive a code
             </p>
-            <form className="mt-5 space-y-3" onSubmit={sendCode}>
+            <form className="mt-6 space-y-3" onSubmit={sendCode}>
               <label htmlFor="otp-email" className="sr-only">
                 Email address
               </label>
@@ -264,21 +287,23 @@ export default function Page() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={pending}
+                aria-describedby={error ? "user-login-error" : undefined}
+                aria-invalid={!!error}
                 className={inputCls}
               />
-              <button type="submit" disabled={pending} className={buttonCls}>
+              <button type="submit" disabled={pending} aria-busy={pending} className={buttonCls}>
                 {pending ? "Sending…" : "Send code"}
               </button>
             </form>
             {info && (
-              <p className="mt-3 text-center text-xs text-neutral-400">{info}</p>
+              <p role="status" className="mt-3 text-center text-xs text-emerald-300">{info}</p>
             )}
             {error && (
-              <p role="alert" className="mt-3 text-center text-xs text-red-400">
+              <p id="user-login-error" role="alert" className="mt-3 text-center text-xs text-red-400">
                 {error}
               </p>
             )}
-            <p className="mt-5 text-center text-xs text-neutral-400">
+            <p className="mt-6 text-center text-xs text-[#9aa9bc]">
               New here?{" "}
               <button
                 type="button"
@@ -287,7 +312,7 @@ export default function Page() {
                   setInfo(null);
                   setView("signup");
                 }}
-                className="underline decoration-neutral-600 underline-offset-2 hover:text-neutral-200"
+                className={linkCls}
               >
                 Create an account
               </button>
@@ -453,15 +478,15 @@ export default function Page() {
           </div>
         )}
 
-        {(view === "admin-signin") && (
-          <div className="mt-6">
-            <h1 className="text-center text-lg font-semibold text-white">
+        {view === "admin-signin" && (
+          <div id="login-panel-admin" role="tabpanel" aria-labelledby="login-tab-admin" className="mt-7">
+            <h1 className="text-center text-xl font-semibold tracking-tight text-white">
               Admin Portal
             </h1>
-            <p className="mt-1 text-center text-sm text-neutral-400">
+            <p className="mt-2 text-center text-sm text-[#9aa9bc]">
               Sign in with administrator credentials
             </p>
-            <form className="mt-5 space-y-3" onSubmit={submitSignIn}>
+            <form className="mt-6 space-y-3" onSubmit={submitSignIn}>
               <label htmlFor="admin-email" className="sr-only">
                 Email address
               </label>
@@ -474,6 +499,8 @@ export default function Page() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={pending}
+                aria-describedby={error ? "admin-login-error" : undefined}
+                aria-invalid={!!error}
                 className={inputCls}
               />
               <label htmlFor="admin-password" className="sr-only">
@@ -488,14 +515,16 @@ export default function Page() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={pending}
+                aria-describedby={error ? "admin-login-error" : undefined}
+                aria-invalid={!!error}
                 className={inputCls}
               />
-              <button type="submit" disabled={pending} className={buttonCls}>
+              <button type="submit" disabled={pending} aria-busy={pending} className={buttonCls}>
                 {pending ? "Signing in…" : "Sign in"}
               </button>
             </form>
             {error && (
-              <p role="alert" className="mt-3 text-center text-xs text-red-400">
+              <p id="admin-login-error" role="alert" className="mt-3 text-center text-xs text-red-400">
                 {error}
               </p>
             )}
@@ -506,7 +535,7 @@ export default function Page() {
                 setInfo(null);
                 setView("forgot");
               }}
-              className="mt-4 w-full text-center text-xs text-neutral-400 underline decoration-neutral-600 underline-offset-2 hover:text-neutral-200"
+              className={`mt-5 block w-full text-center text-xs ${linkCls}`}
             >
               Forgot password?
             </button>
@@ -606,7 +635,7 @@ export default function Page() {
             )}
           </div>
         )}
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
