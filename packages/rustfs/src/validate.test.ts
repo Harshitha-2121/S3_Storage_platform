@@ -2,11 +2,11 @@
 import { describe, expect, test } from "vitest";
 import {
   MAX_BUCKET_SUFFIX_LEN,
+  formatBytes,
+  rfc3339,
   validateBucketSuffix,
   validateFullBucketName,
   validateObjectKey,
-  formatBytes,
-  rfc3339,
 } from "./validate";
 
 describe("validateBucketSuffix", () => {

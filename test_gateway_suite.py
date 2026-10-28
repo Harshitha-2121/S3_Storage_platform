@@ -3,16 +3,13 @@ import sys
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
-ENDPOINT = "http://127.0.0.1:3211/s3"
-KEY_ID = "s3973c5f62029fed2e9492243f"
-SECRET = "a1ed6fc257616f43143afc61f575109a77e587b4fda82ecb1b413c41b57afb14"
-BUCKET = "ou4ye78j-me-bucket"
+from s3_test_config import BUCKET, ENDPOINT, ACCESS_KEY, SECRET_KEY, MULTIPART_MIN_PART_BYTES
 
 s3 = boto3.client(
     "s3",
     endpoint_url=ENDPOINT,
-    aws_access_key_id=KEY_ID,
-    aws_secret_access_key=SECRET,
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY,
     region_name="us-east-1",
     config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=30)
 )
@@ -47,8 +44,9 @@ try:
     print(f"  -> PASS: Initiated multipart upload. UploadId: {upload_id}")
 
     # 3b. Upload 2 Parts
-    part1_data = b"Part 1 content with at least some test bytes!" * 100
-    part2_data = b"Part 2 content with second batch of test bytes!" * 100
+    # S3 requires every non-final part to be >= 5 MiB; the final part may be smaller.
+    part1_data = b"P" * MULTIPART_MIN_PART_BYTES
+    part2_data = b"Q" * (256 * 1024)
     
     p1 = s3.upload_part(Bucket=BUCKET, Key=mp_key, UploadId=upload_id, PartNumber=1, Body=part1_data)
     etag1 = p1["ETag"]
@@ -83,6 +81,43 @@ try:
     init2 = s3.create_multipart_upload(Bucket=BUCKET, Key="test-abort.bin")
     s3.abort_multipart_upload(Bucket=BUCKET, Key="test-abort.bin", UploadId=init2["UploadId"])
     print("  -> PASS: AbortMultipartUpload succeeded")
+
+    # 3g. Negative: a non-final part below 5 MiB must be rejected with
+    # EntityTooSmall (this is the S3 specification, not an optional nicety).
+    small_key = "test-small-parts.bin"
+    small_init = s3.create_multipart_upload(Bucket=BUCKET, Key=small_key)
+    small_upload_id = small_init["UploadId"]
+    try:
+        small_p1 = s3.upload_part(
+            Bucket=BUCKET, Key=small_key, UploadId=small_upload_id,
+            PartNumber=1, Body=b"A" * 1024,
+        )
+        small_p2 = s3.upload_part(
+            Bucket=BUCKET, Key=small_key, UploadId=small_upload_id,
+            PartNumber=2, Body=b"B" * 1024,
+        )
+        try:
+            s3.complete_multipart_upload(
+                Bucket=BUCKET,
+                Key=small_key,
+                UploadId=small_upload_id,
+                MultipartUpload={"Parts": [
+                    {"PartNumber": 1, "ETag": small_p1["ETag"]},
+                    {"PartNumber": 2, "ETag": small_p2["ETag"]},
+                ]},
+            )
+            print("  -> FAIL: multipart with a <5MiB non-final part was accepted")
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "EntityTooSmall":
+                print("  -> PASS: small non-final part rejected with EntityTooSmall")
+            else:
+                print(f"  -> FAIL: expected EntityTooSmall, got {code}")
+    finally:
+        try:
+            s3.abort_multipart_upload(Bucket=BUCKET, Key=small_key, UploadId=small_upload_id)
+        except ClientError:
+            pass
 
 except Exception as e:
     print("  -> FAIL Multipart Upload:", e)

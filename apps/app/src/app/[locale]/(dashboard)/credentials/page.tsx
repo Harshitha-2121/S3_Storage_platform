@@ -37,7 +37,9 @@ export default function CredentialsPage() {
   const accounts = useQuery(api.storageAccounts.listAccounts, scoped);
   const credentials = useQuery(api.s3Credentials.listCredentials, scoped);
 
-  const ensureDefaultAccount = useMutation(api.storageAccounts.ensureDefaultAccount);
+  const ensureDefaultAccount = useMutation(
+    api.storageAccounts.ensureDefaultAccount,
+  );
   const createCredential = useMutation(api.s3Credentials.createCredential);
   const revokeCredential = useMutation(api.s3Credentials.revokeCredential);
   const rotateCredential = useMutation(api.s3Credentials.rotateCredential);
@@ -88,7 +90,9 @@ export default function CredentialsPage() {
       });
       toast.success("S3 Credentials generated successfully!");
     } catch (err: any) {
-      toast.error(err?.data ?? err?.message ?? "Failed to create S3 credentials");
+      toast.error(
+        err?.data ?? err?.message ?? "Failed to create S3 credentials",
+      );
     } finally {
       setCreating(false);
     }
@@ -120,7 +124,7 @@ export default function CredentialsPage() {
 
   const s3GatewayEndpoint =
     typeof window !== "undefined"
-      ? `${window.location.protocol}//127.0.0.1:3211/s3`
+      ? `${window.location.protocol}//${window.location.hostname}:${process.env.NEXT_PUBLIC_S3_GATEWAY_PORT ?? "3211"}/s3`
       : "http://127.0.0.1:3211/s3";
 
   return (
@@ -128,9 +132,12 @@ export default function CredentialsPage() {
       <div className="mx-auto w-full max-w-screen-xl space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-xl font-medium text-primary">S3 API Credentials</h1>
+          <h1 className="text-xl font-medium text-primary">
+            S3 API Credentials
+          </h1>
           <p className="text-sm text-primary/60">
-            Generate and manage AWS SigV4-compatible access keys to connect S3 clients and tools to your storage.
+            Generate and manage AWS SigV4-compatible access keys to connect S3
+            clients and tools to your storage.
           </p>
         </div>
 
@@ -141,9 +148,12 @@ export default function CredentialsPage() {
               <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
               <div className="space-y-3 flex-1">
                 <div>
-                  <h3 className="text-sm font-semibold text-amber-500">Save Your S3 Secret Access Key</h3>
+                  <h3 className="text-sm font-semibold text-amber-500">
+                    Save Your S3 Secret Access Key
+                  </h3>
                   <p className="text-xs text-primary/70 mt-0.5">
-                    This secret key will <strong>never be shown again</strong>. Please copy and store it securely now.
+                    This secret key will <strong>never be shown again</strong>.
+                    Please copy and store it securely now.
                   </p>
                 </div>
 
@@ -151,9 +161,13 @@ export default function CredentialsPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-primary/60">Access Key ID:</span>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-primary">{createdSecret.accessKeyId}</span>
+                      <span className="font-semibold text-primary">
+                        {createdSecret.accessKeyId}
+                      </span>
                       <button
-                        onClick={() => copy(createdSecret.accessKeyId, "Access Key ID")}
+                        onClick={() =>
+                          copy(createdSecret.accessKeyId, "Access Key ID")
+                        }
                         className="text-primary/40 hover:text-primary"
                       >
                         {copiedKey === "Access Key ID" ? (
@@ -167,9 +181,16 @@ export default function CredentialsPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-primary/60">Secret Access Key:</span>
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-emerald-500">{createdSecret.secretAccessKey}</span>
+                      <span className="font-semibold text-emerald-500">
+                        {createdSecret.secretAccessKey}
+                      </span>
                       <button
-                        onClick={() => copy(createdSecret.secretAccessKey, "Secret Access Key")}
+                        onClick={() =>
+                          copy(
+                            createdSecret.secretAccessKey,
+                            "Secret Access Key",
+                          )
+                        }
                         className="text-primary/40 hover:text-primary"
                       >
                         {copiedKey === "Secret Access Key" ? (
@@ -182,7 +203,12 @@ export default function CredentialsPage() {
                   </div>
                 </div>
 
-                <Button size="sm" variant="outline" onClick={() => setCreatedSecret(null)} className="text-xs">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCreatedSecret(null)}
+                  className="text-xs"
+                >
                   I have saved these credentials
                 </Button>
               </div>
@@ -192,8 +218,13 @@ export default function CredentialsPage() {
 
         {/* Generate Key Form */}
         <div className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-sm font-medium text-primary mb-3">Create New S3 Credential</h2>
-          <form onSubmit={handleCreate} className="flex flex-col gap-3 sm:flex-row">
+          <h2 className="text-sm font-medium text-primary mb-3">
+            Create New S3 Credential
+          </h2>
+          <form
+            onSubmit={handleCreate}
+            className="flex flex-col gap-3 sm:flex-row"
+          >
             <input
               type="text"
               placeholder="Credential Name (e.g., Production AWS SDK, Backup CLI)"
@@ -202,7 +233,11 @@ export default function CredentialsPage() {
               className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-primary placeholder:text-primary/40 focus:outline-none focus:ring-1 focus:ring-primary"
               required
             />
-            <Button type="submit" disabled={creating} className="shrink-0 gap-1.5">
+            <Button
+              type="submit"
+              disabled={creating}
+              className="shrink-0 gap-1.5"
+            >
               <Plus className="h-4 w-4" />
               {creating ? "Generating..." : "Generate Key"}
             </Button>
@@ -219,13 +254,18 @@ export default function CredentialsPage() {
           </div>
           <div className="divide-y divide-border/50">
             {credentials === undefined ? (
-              <div className="p-8 text-center text-sm text-primary/40">Loading credentials...</div>
+              <div className="p-8 text-center text-sm text-primary/40">
+                Loading credentials...
+              </div>
             ) : credentials.length === 0 ? (
               <div className="p-8 text-center">
                 <Lock className="mx-auto h-8 w-8 text-primary/30 mb-2" />
-                <p className="text-sm text-primary/60">No API credentials generated yet.</p>
+                <p className="text-sm text-primary/60">
+                  No API credentials generated yet.
+                </p>
                 <p className="text-xs text-primary/40 mt-1">
-                  Create a credential above to access your buckets via the AWS CLI or SDK.
+                  Create a credential above to access your buckets via the AWS
+                  CLI or SDK.
                 </p>
               </div>
             ) : (
@@ -236,7 +276,9 @@ export default function CredentialsPage() {
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm text-primary">{cred.name}</span>
+                      <span className="font-medium text-sm text-primary">
+                        {cred.name}
+                      </span>
                       {cred.revoked ? (
                         <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
                           Revoked
@@ -257,11 +299,16 @@ export default function CredentialsPage() {
                         <Copy className="h-3 w-3" />
                       </button>
                       <span>•</span>
-                      <span>Created: {new Date(cred.createdAt).toLocaleDateString()}</span>
+                      <span>
+                        Created: {new Date(cred.createdAt).toLocaleDateString()}
+                      </span>
                       {cred.lastUsedAt && (
                         <>
                           <span>•</span>
-                          <span>Last Used: {new Date(cred.lastUsedAt).toLocaleDateString()}</span>
+                          <span>
+                            Last Used:{" "}
+                            {new Date(cred.lastUsedAt).toLocaleDateString()}
+                          </span>
                         </>
                       )}
                     </div>
@@ -299,17 +346,22 @@ export default function CredentialsPage() {
         <div className="rounded-lg border border-border bg-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <Terminal className="h-4 w-4 text-primary/70" />
-            <h2 className="text-sm font-medium text-primary">AWS CLI & SDK Connection Guide</h2>
+            <h2 className="text-sm font-medium text-primary">
+              AWS CLI & SDK Connection Guide
+            </h2>
           </div>
           <p className="text-xs text-primary/60 mb-4">
-            Connect to your S3 storage using any standard AWS tool by configuring the custom endpoint and your generated credentials.
+            Connect to your S3 storage using any standard AWS tool by
+            configuring the custom endpoint and your generated credentials.
           </p>
 
           <div className="space-y-3">
             <div>
-              <span className="text-xs font-medium text-primary/80">AWS CLI Command Example:</span>
+              <span className="text-xs font-medium text-primary/80">
+                AWS CLI Command Example:
+              </span>
               <pre className="mt-1.5 rounded-md bg-secondary/80 p-3 font-mono text-xs text-primary overflow-x-auto border border-border">
-{`# 1. Export credentials
+                {`# 1. Export credentials
 export AWS_ACCESS_KEY_ID="<YOUR_ACCESS_KEY_ID>"
 export AWS_SECRET_ACCESS_KEY="<YOUR_SECRET_ACCESS_KEY>"
 export AWS_DEFAULT_REGION="us-east-1"

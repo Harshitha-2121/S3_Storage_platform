@@ -2,8 +2,8 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
-import { polar } from "./subscriptions";
 import { s3Gateway } from "./gateway";
+import { polar } from "./subscriptions";
 
 const http = httpRouter();
 
@@ -39,9 +39,10 @@ http.route({
     if (!secret || secret !== process.env.BACKEND_WEBHOOK_SECRET) {
       return new Response("unauthorized", { status: 401 });
     }
-    const payload = (await req
-      .json()
-      .catch(() => ({}))) as Record<string, unknown>;
+    const payload = (await req.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     const type = typeof payload.type === "string" ? payload.type : "event";
 
     if (type === "job.result" && typeof payload.jobId === "string") {

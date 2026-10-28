@@ -6,7 +6,7 @@ import { api } from "@v1/backend/convex/_generated/api";
 import type { Id } from "@v1/backend/convex/_generated/dataModel";
 import { Button } from "@v1/ui/button";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Database, HardDrive, Plus, ArrowRight, RefreshCw, ShieldCheck, Copy, Check, Search } from "lucide-react";
+import { Database, HardDrive, Plus, ArrowRight, RefreshCw, ShieldCheck, Copy, Check } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -23,7 +23,6 @@ export default function BucketsPage() {
   const myRole = workspaces.find((w) => w._id === current)?.role;
   const canManage = myRole === "owner" || myRole === "admin";
   const [bucketName, setBucketName] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -272,21 +271,11 @@ export default function BucketsPage() {
 
         {/* Buckets List */}
         <div className="rounded-lg border border-border bg-card">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-border px-4 py-3">
+          <div className="border-b border-border px-4 py-3">
             <h2 className="text-sm font-medium text-primary flex items-center gap-2">
               <Database className="h-4 w-4 text-primary/60" />
               Your Buckets ({buckets?.length ?? 0})
             </h2>
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-primary/40" />
-              <input
-                type="text"
-                placeholder="Search buckets..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-md border border-border bg-background pl-8 pr-3 py-1.5 text-xs font-mono text-primary placeholder:text-primary/40 focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
           </div>
           <div className="divide-y divide-border/50">
             {buckets === undefined ? (
@@ -298,14 +287,7 @@ export default function BucketsPage() {
                 <p className="text-xs text-primary/40 mt-1">Create your first S3 bucket above to get started.</p>
               </div>
             ) : (
-              buckets
-                .filter(
-                  (b: any) =>
-                    !searchTerm ||
-                    b.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    b.rustfsName.toLowerCase().includes(searchTerm.toLowerCase())
-                )
-                .map((b: any) => (
+              buckets.map((b: any) => (
                 <div
                   key={b._id}
                   className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between transition-colors hover:bg-primary/[0.02]"

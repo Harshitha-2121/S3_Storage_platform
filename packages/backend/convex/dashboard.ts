@@ -23,9 +23,7 @@ export const stats = query({
     let storageObjects = 0;
     const buckets = await ctx.db
       .query("buckets")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .collect();
     for (const b of buckets) {
       const rows = await ctx.db

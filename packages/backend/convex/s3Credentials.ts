@@ -10,6 +10,7 @@
 
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
@@ -24,12 +25,9 @@ import {
   generateSecretKey,
   hashSecret,
 } from "./credCrypto";
-import {
-  isValidS3Action,
-  S3_ACTIONS,
-} from "./storageValidate";
-import type { Id } from "./_generated/dataModel";
+import { requireDevSeed } from "./devGuard";
 import { requireMember, requireRole } from "./orgs";
+import { S3_ACTIONS, isValidS3Action } from "./storageValidate";
 
 /** Create an S3 access key for an account. */
 export const createCredential = mutation({
@@ -110,9 +108,7 @@ export const listCredentials = query({
     await requireMember(ctx, userId, workspaceId);
     const rows = await ctx.db
       .query("s3Credentials")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .order("desc")
       .collect();
     // Never return the secret cipher/hash to the client.
@@ -138,10 +134,7 @@ export const rotateCredential = mutation({
     if (!userId) throw new ConvexError("Not authenticated");
     const old = await ctx.db.get(id);
     if (!old) throw new ConvexError("Credential not found");
-    await requireRole(ctx, userId, old.workspaceId, [
-      "owner",
-      "admin",
-    ]);
+    await requireRole(ctx, userId, old.workspaceId, ["owner", "admin"]);
 
     // Issue a new credential with the same scope.
     const accessKeyId = generateAccessKeyId();
@@ -179,10 +172,7 @@ export const revokeCredential = mutation({
     if (!userId) throw new ConvexError("Not authenticated");
     const c = await ctx.db.get(id);
     if (!c) throw new ConvexError("Credential not found");
-    await requireRole(ctx, userId, c.workspaceId, [
-      "owner",
-      "admin",
-    ]);
+    await requireRole(ctx, userId, c.workspaceId, ["owner", "admin"]);
     await ctx.db.patch(id, { revoked: true });
     await audit(ctx, c.workspaceId, userId, "s3credential.revoke", {
       id,
@@ -201,9 +191,7 @@ export const resolveCredential = internalQuery({
   handler: async (ctx, { accessKeyId }) => {
     const c = await ctx.db
       .query("s3Credentials")
-      .withIndex("by_accessKey", (q) =>
-        q.eq("accessKeyId", accessKeyId),
-      )
+      .withIndex("by_accessKey", (q) => q.eq("accessKeyId", accessKeyId))
       .unique();
     if (!c || c.revoked) return null;
     const account = await ctx.db.get(c.accountId);
@@ -236,9 +224,7 @@ export const accountBucketIds = internalQuery({
   handler: async (ctx, { accountId }) => {
     const rows = await ctx.db
       .query("buckets")
-      .withIndex("by_account", (q) =>
-        q.eq("accountId", accountId),
-      )
+      .withIndex("by_account", (q) => q.eq("accountId", accountId))
       .collect();
     return rows.map((b) => ({ _id: b._id, rustfsName: b.rustfsName }));
   },
@@ -254,6 +240,7 @@ export const createCredentialInternal = internalMutation({
     actions: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
+    requireDevSeed();
     const accessKeyId = generateAccessKeyId();
     const secretKey = generateSecretKey();
     const secretCipher = await encryptSecret(secretKey);

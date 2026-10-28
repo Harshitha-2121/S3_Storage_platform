@@ -143,12 +143,20 @@ export const members = query({
 const VALID_INVITE_ROLES = ["admin", "member"] as const;
 
 export const invite = mutation({
-  args: { workspaceId: v.id("workspaces"), email: v.string(), role: v.string() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    email: v.string(),
+    role: v.string(),
+  },
   handler: async (ctx, { workspaceId, email, role }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
-    if (!VALID_INVITE_ROLES.includes(role as (typeof VALID_INVITE_ROLES)[number]))
+    if (
+      !VALID_INVITE_ROLES.includes(role as (typeof VALID_INVITE_ROLES)[number])
+    )
       throw new ConvexError("Invalid role: must be admin or member");
+    if (!email.includes("@") || email.trim().length !== email.length)
+      throw new ConvexError("Invalid email address");
     await requireRole(ctx, userId, workspaceId, ["owner", "admin"]);
     const normalized = email.toLowerCase();
     // Idempotent re-invite: a pending invite already exists — don't pile up
@@ -247,7 +255,11 @@ export const inviteForUser = internalMutation({
   },
   handler: async (ctx, a) => {
     requireDevSeed();
-    if (!VALID_INVITE_ROLES.includes(a.role as (typeof VALID_INVITE_ROLES)[number]))
+    if (
+      !VALID_INVITE_ROLES.includes(
+        a.role as (typeof VALID_INVITE_ROLES)[number],
+      )
+    )
       throw new ConvexError("Invalid role: must be admin or member");
     return ctx.db.insert("invites", {
       workspaceId: a.workspaceId,
@@ -334,7 +346,15 @@ export const acceptInvite = mutation({
     const inv = await ctx.db.get(inviteId);
     const u = await ctx.db.get(userId);
     if (!inv) throw new ConvexError("Invite not found");
-    if (inv.email && u?.email && inv.email.toLowerCase() !== u.email.toLowerCase()) {
+    if (!u?.email)
+      throw new ConvexError(
+        "Your account has no email — cannot accept invites",
+      );
+    if (
+      !inv.email ||
+      !inv.email.toLowerCase().includes("@") ||
+      inv.email.toLowerCase() !== u.email.toLowerCase()
+    ) {
       throw new ConvexError("Invite not for you");
     }
     return acceptInviteImpl(ctx, userId, inviteId);
@@ -360,7 +380,9 @@ export const removeMember = mutation({
     if (m.role === "owner") throw new ConvexError("Cannot remove the owner");
     await ctx.db.delete(memberId);
     await bump(ctx, workspaceId, "members", -1);
-    await audit(ctx, workspaceId, userId, "member.remove", { member: m.userId });
+    await audit(ctx, workspaceId, userId, "member.remove", {
+      member: m.userId,
+    });
   },
 });
 
@@ -374,11 +396,16 @@ export const changeRole = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
     await requireRole(ctx, userId, workspaceId, ["owner", "admin"]);
-    if (!["admin", "member"].includes(role)) throw new ConvexError("Invalid role");
+    if (!["admin", "member"].includes(role))
+      throw new ConvexError("Invalid role");
     const m = await ctx.db.get(memberId);
     if (!m || m.workspaceId !== workspaceId) throw new ConvexError("Not found");
-    if (m.role === "owner") throw new ConvexError("Cannot change the owner's role");
+    if (m.role === "owner")
+      throw new ConvexError("Cannot change the owner's role");
     await ctx.db.patch(memberId, { role });
-    await audit(ctx, workspaceId, userId, "member.role", { member: m.userId, role });
+    await audit(ctx, workspaceId, userId, "member.role", {
+      member: m.userId,
+      role,
+    });
   },
 });

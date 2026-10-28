@@ -22,14 +22,15 @@ export type Credential = {
 
 export function toHex(bytes: Uint8Array): string {
   let out = "";
-  for (const b of bytes) out += HEX_CHARS[b >> 4] + HEX_CHARS[b & 0x0f];
+  for (const b of bytes)
+    out += HEX_CHARS.charAt(b >> 4) + HEX_CHARS.charAt(b & 0x0f);
   return out;
 }
 
 export function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++)
-    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    out[i] = Number.parseInt(hex.substr(i * 2, 2), 16);
   return out;
 }
 
@@ -76,7 +77,7 @@ export function uriEncode(value: string, keepSlash = false): string {
     } else {
       for (const byte of new TextEncoder().encode(ch)) {
         const hex = byte.toString(16).toUpperCase();
-        out += "%" + (hex.length === 1 ? "0" + hex : hex);
+        out += `%${hex.length === 1 ? `0${hex}` : hex}`;
       }
     }
   }
@@ -111,7 +112,7 @@ export function canonicalQuery(
     const vb = uriEncode(bv);
     return va < vb ? -1 : va > vb ? 1 : 0;
   });
-  return entries.map(([k, v]) => uriEncode(k) + "=" + uriEncode(v)).join("&");
+  return entries.map(([k, v]) => `${uriEncode(k)}=${uriEncode(v)}`).join("&");
 }
 
 /** URLSearchParams → query record, preserving repeated keys. */
@@ -152,7 +153,7 @@ export function canonicalRequest({
   const canonicalQueryString = canonicalQuery(query ?? {});
   const names = signedHeaders.split(";").sort();
   const canonicalHeaders = names
-    .map((n) => n + ":" + (headers[n] ?? "").trim().replace(/\s+/g, " ") + "\n")
+    .map((n) => `${n}:${(headers[n] ?? "").trim().replace(/\s+/g, " ")}\n`)
     .join("");
   return [
     method.toUpperCase(),
@@ -198,7 +199,7 @@ export async function deriveSigningKey({
   service: string;
 }): Promise<Uint8Array> {
   const dateKey = await hmac(
-    new TextEncoder().encode("AWS4" + secretAccessKey),
+    new TextEncoder().encode(`AWS4${secretAccessKey}`),
     date,
   );
   const dateRegionKey = await hmac(dateKey, region);

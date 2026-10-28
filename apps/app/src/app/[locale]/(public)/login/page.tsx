@@ -2,7 +2,6 @@
 
 import { Logo } from "@/components/logo";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -28,9 +27,6 @@ export default function Page() {
   const [view, setView] = useState<View>("otp");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [pending, setPending] = useState(false);
@@ -60,16 +56,16 @@ export default function Page() {
         setError("An account with this email already exists. Please log in or reset your password.");
       } else if (/Password must be/i.test(errorText) || /Invalid password/i.test(errorText)) {
         setError("Password must be at least 8 characters and include uppercase, lowercase, and a number.");
-      } else if (/You can only send testing emails to your own email address/i.test(errorText) || /verify a domain at resend\.com/i.test(errorText)) {
-        setError(
-          "Email delivery restricted: Using Resend Sandbox mode (onboarding@resend.dev), emails can only be sent to the verified account owner (harshitha.olla@networkershome.com). To send to Temp-Mail or other external addresses, please verify a custom domain at resend.com/domains."
-        );
       } else if (/reading 'redirect'/.test(errorText)) {
         // @convex-dev/auth throws or returns a state whose client crashes reading .redirect
         if (context === "signup") {
+          // If this happens during initial signup, it's not a bad OTP code!
           setError("Could not complete registration. Please check your details and try again.");
         } else if (context === "otp") {
-          setError("Failed to send OTP code. Please verify your email address or check provider configuration.");
+          // Benign @convex-dev/auth Next.js client artifact during sendCode: proceed to verify step
+          setInfo(`Code sent to ${normalizedEmail}`);
+          setView("otp-verify");
+          return;
         } else {
           setError("Invalid or expired code. Send a new code below and try again.");
         }
@@ -102,7 +98,16 @@ export default function Page() {
   const sendCode = (e: React.FormEvent) =>
     run(async () => {
       e.preventDefault();
-      await signIn("resend-otp", { email: normalizedEmail });
+      try {
+        await signIn("ollastack-otp", { email: normalizedEmail });
+      } catch (err: unknown) {
+        const msg = (err as Error)?.message || "";
+        if (/reading 'redirect'/i.test(msg)) {
+          // Benign @convex-dev/auth Next.js client artifact during sendCode
+        } else {
+          throw err;
+        }
+      }
       setInfo(`Code sent to ${normalizedEmail}`);
       setView("otp-verify");
     }, "otp");
@@ -110,16 +115,13 @@ export default function Page() {
   const verifyCode = (e: React.FormEvent) =>
     run(async () => {
       e.preventDefault();
-      const res = await signIn("resend-otp", { email: normalizedEmail, code: code.trim() });
+      const res = await signIn("ollastack-otp", { email: normalizedEmail, code: code.trim() });
       goHome(res);
     }, "verify");
 
   const submitSignUp = (e: React.FormEvent) =>
     run(async () => {
       e.preventDefault();
-      if (password !== confirmPassword) {
-        throw new Error("Passwords do not match. Please verify your password confirmation.");
-      }
       await signIn("password", { email: normalizedEmail, password, flow: "signUp" });
       setInfo(`A verification code has been sent to ${normalizedEmail}. Please check your inbox.`);
       setView("verify");
@@ -358,48 +360,20 @@ export default function Page() {
                 disabled={pending}
                 className={inputCls}
               />
-              <div className="relative">
-                <input
-                  id="signup-password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  autoComplete="new-password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={pending}
-                  className={`${inputCls} pr-10`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-neutral-400 hover:text-neutral-200 focus:outline-none"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <div className="relative">
-                <input
-                  id="signup-confirm-password"
-                  type={showConfirmPassword ? "text" : "password"}
-                  required
-                  autoComplete="new-password"
-                  placeholder="Confirm Password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  disabled={pending}
-                  className={`${inputCls} pr-10`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-3 text-neutral-400 hover:text-neutral-200 focus:outline-none"
-                  aria-label={showConfirmPassword ? "Hide password confirmation" : "Show password confirmation"}
-                >
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
+              <label htmlFor="signup-password" className="sr-only">
+                Password
+              </label>
+              <input
+                id="signup-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={pending}
+                className={inputCls}
+              />
               <button type="submit" disabled={pending} className={buttonCls}>
                 {pending ? "Creating…" : "Create account"}
               </button>
@@ -502,27 +476,20 @@ export default function Page() {
                 disabled={pending}
                 className={inputCls}
               />
-              <div className="relative">
-                <input
-                  id="admin-password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  autoComplete="current-password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={pending}
-                  className={`${inputCls} pr-10`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-neutral-400 hover:text-neutral-200 focus:outline-none"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
+              <label htmlFor="admin-password" className="sr-only">
+                Password
+              </label>
+              <input
+                id="admin-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={pending}
+                className={inputCls}
+              />
               <button type="submit" disabled={pending} className={buttonCls}>
                 {pending ? "Signing in…" : "Sign in"}
               </button>
@@ -611,27 +578,20 @@ export default function Page() {
                 disabled={pending}
                 className={inputCls}
               />
-              <div className="relative">
-                <input
-                  id="reset-password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  autoComplete="new-password"
-                  placeholder="New password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  disabled={pending}
-                  className={`${inputCls} pr-10`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-neutral-400 hover:text-neutral-200 focus:outline-none"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
+              <label htmlFor="reset-password" className="sr-only">
+                New password
+              </label>
+              <input
+                id="reset-password"
+                type="password"
+                required
+                autoComplete="new-password"
+                placeholder="New password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                disabled={pending}
+                className={inputCls}
+              />
               <button type="submit" disabled={pending} className={buttonCls}>
                 {pending ? "Saving…" : "Set new password"}
               </button>

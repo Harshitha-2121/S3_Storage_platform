@@ -1,51 +1,72 @@
 import { Email } from "@convex-dev/auth/providers/Email";
-import { internal } from "./_generated/api";
+import {
+  authDevFallbackEnabled,
+  authEmailProviderConfigured,
+  dispatchAuthEmail,
+  handleAuthDeliveryFailure,
+  logAuthEmailGenerated,
+  logDevFallbackCode,
+} from "./authEmailDelivery";
 
 /**
- * Magic email OTP provider (passwordless).
- * Sends the code via Resend API using a Convex action (no timeout limit).
- * Falls back to console.warn in dev if the key is missing.
+ * Magic email OTP provider (passwordless) using Ollastack API.
+ * Sends the code via Ollastack API using a Convex action (no timeout limit).
+ * Follows strict fail-closed and dev-fallback redaction policy.
  */
-export const ResendOTP = Email({
-  id: "resend-otp",
-  apiKey: process.env.RESEND_API_KEY,
+export const OllastackOTP = Email({
+  id: "ollastack-otp",
+  apiKey: process.env.OLLASTACK_API_KEY,
   maxAge: 60 * 15, // code valid for 15 minutes
   async generateVerificationToken() {
-    const bytes = new Uint8Array(6);
+    const bytes = new Uint8Array(8);
     crypto.getRandomValues(bytes);
     return Array.from(bytes, (b) => (b % 10).toString()).join("");
   },
   async sendVerificationRequest(
     { identifier: email, token }: { identifier: string; token: string },
-    ctx?: { runAction: (ref: unknown, args: unknown) => Promise<unknown>; scheduler?: { runAfter: (delay: number, ref: unknown, args: unknown) => Promise<unknown> } },
+    ctx?: {
+      runAction?: (ref: unknown, args: unknown) => Promise<unknown>;
+      scheduler?: {
+        runAfter: (delay: number, ref: unknown, args: unknown) => Promise<unknown>;
+      };
+    },
   ) {
-    // Always log as dev fallback — the code is visible in Convex logs
-    console.warn(`[auth] OTP for ${email}: ${token}`);
-
-    if (!process.env.RESEND_API_KEY) {
-      console.warn("[auth] RESEND_API_KEY not set — email not sent");
+    if (!authEmailProviderConfigured()) {
+      if (authDevFallbackEnabled()) {
+        logDevFallbackCode("sign-in OTP", email, token);
+        return;
+      }
+      handleAuthDeliveryFailure(
+        "sign-in OTP",
+        email,
+        new Error("Email provider not configured (OLLASTACK_API_KEY missing)"),
+      );
       return;
     }
 
-    // Attempt real email delivery via Resend/SMTP if configured,
-    // but gracefully catch provider restrictions so development/testing domains
-    // (like .test or sandbox emails) can still complete OTP authentication.
+    logAuthEmailGenerated("sign-in OTP", email);
+
     try {
-      if (ctx?.runAction) {
-        await ctx.runAction(internal.email.sendEmail, {
-          to: email,
-          subject: "Your sign-in code",
-          text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
-        });
-      } else if (ctx?.scheduler) {
-        await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
-          to: email,
-          subject: "Your sign-in code",
-          text: `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
-        });
-      }
+      await dispatchAuthEmail(
+        ctx,
+        email,
+        "Your sign-in code",
+        `Your sign-in code is: ${token}\n\nThis code expires in 15 minutes.`,
+      );
     } catch (e) {
-      console.warn(`[email] Provider rejected delivery for ${email}: ${(e as Error).message}`);
+      handleAuthDeliveryFailure("sign-in OTP", email, e);
     }
   },
 });
+
+/**
+ * Backward compatibility alias for existing callers.
+ */
+export const ResendOTP = Email({
+  id: "resend-otp",
+  apiKey: process.env.OLLASTACK_API_KEY,
+  maxAge: 60 * 15,
+  generateVerificationToken: OllastackOTP.generateVerificationToken,
+  sendVerificationRequest: OllastackOTP.sendVerificationRequest,
+});
+

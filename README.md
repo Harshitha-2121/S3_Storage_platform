@@ -338,12 +338,19 @@ s3.put_object(Bucket="<bucket>", Key="hello.txt", Body=b"hi")
 The bucket name on the wire is the **physical** name (`<accountCode>-<yourName>`); the
 dashboard shows the friendly name and resolves it for you.
 
-Supported operations (mapped by `storageValidate.s3ActionForRequest`): `ListAllMyBuckets`,
-`ListBucket`, `ListBucketVersions`, `CreateBucket`, `DeleteBucket`, `GetBucketLocation`,
-`Get/PutBucketTagging`, `Get/PutBucketCors`, `Get/PutBucketVersioning`, `PutObject`,
-`GetObject`, `HeadObject`, `DeleteObject`, `GetObjectVersion`, `DeleteObjectVersion`,
-`Get/Put/DeleteObjectTagging`, multipart upload (`CreateMultipartUpload`, `UploadPart`,
-`CompleteMultipartUpload`, `AbortMultipartUpload`) and `DeleteObjects` (batch).
+Supported operations (mapped by `storageValidate.s3ActionForRequest`):
+- **Bucket operations**: `ListAllMyBuckets`, `HeadBucket` (`HEAD /{bucket}`), `GetBucketLocation` (`GET /{bucket}?location`), `CreateBucket`, `DeleteBucket`, `DeleteObjects` (`POST /{bucket}?delete`, up to 1,000 objects, quiet mode supported), CORS round-trip (`GET/PUT/DELETE /{bucket}?cors`), bucket tagging (`GET/PUT/DELETE /{bucket}?tagging`, up to 50 tags), bucket versioning configuration (`GET/PUT /{bucket}?versioning`, `Enabled` and `Suspended`).
+- **Object operations**: `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, version-aware operations via `?versionId=` (`GetObjectVersion`, `DeleteObjectVersion`, `HeadObjectVersion`), delete markers, `ListObjectVersions` (`GET /{bucket}?versions`), object tagging (`GET/PUT/DELETE /{bucket}/{key}?tagging`, up to 10 tags, version-aware).
+- **Multipart uploads**: Complete gateway lifecycle: `POST /{bucket}/{key}?uploads` (CreateMultipartUpload), `PUT /{bucket}/{key}?partNumber={n}&uploadId={id}` (UploadPart), `POST /{bucket}/{key}?uploadId={id}` (CompleteMultipartUpload), `DELETE /{bucket}/{key}?uploadId={id}` (AbortMultipartUpload), `GET /{bucket}/{key}?uploadId={id}` (ListParts), and `GET /{bucket}?uploads` (ListMultipartUploads).
+
+### Known compatibility limits
+
+This platform prioritizes clean, high-performance compatibility with core S3 clients (`boto3`, `aws-cli`, `rclone`, `@aws-sdk/client-s3`), but does **not** claim 100% parity with AWS S3:
+- **Storage classes & tiering**: Glacier, Deep Archive, Intelligent-Tiering, and Object Lock are omitted because the underlying storage architecture does not provide archival media.
+- **Advanced transformations & analytics**: S3 Select, Object Lambda, Cross-Region Replication (CRR), and Transfer Acceleration are not supported.
+- **MFA Delete**: Versioning configuration with `MfaDelete` returns HTTP 501 `NotImplemented`.
+- **Upload sizes & parts**: Non-final multipart parts must be at least 5 MiB (up to 10,000 parts; gateway buffers up to 64 MiB per part). Single PUT object uploads through the gateway are capped at `S3_GATEWAY_MAX_BYTES` (default 10 MiB; direct presigned uploads bypass gateway buffering).
+- **Uniform authorization**: To prevent bucket or object existence enumeration, unauthorized or non-existent buckets return a uniform 403 `AccessDenied` error.
 
 ## Security model
 

@@ -7,7 +7,10 @@ import { privateBucketNameForUser } from "../convex/storageValidate";
 
 // Discover function modules for convex-test (convex/ tree, including
 // _generated, excluding *.test.ts).
-const modules = import.meta.glob(["../convex/**/*.*s", "!../convex/**/*.test.*"]);
+const modules = import.meta.glob([
+  "../convex/**/*.*s",
+  "!../convex/**/*.test.*",
+]);
 
 async function seedUser(t: ReturnType<typeof convexTest>) {
   return t.run(async (ctx) => {

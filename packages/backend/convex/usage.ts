@@ -25,7 +25,12 @@ export async function recordUsage(
       updatedAt: now,
     });
   } else {
-    await ctx.db.insert("usage", { workspaceId, metric, count: by, updatedAt: now });
+    await ctx.db.insert("usage", {
+      workspaceId,
+      metric,
+      count: by,
+      updatedAt: now,
+    });
   }
 }
 

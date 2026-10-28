@@ -14,15 +14,13 @@
 //      ties the key to the storage backend's root credential.
 
 function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function fromHex(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++)
-    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    out[i] = Number.parseInt(hex.substr(i * 2, 2), 16);
   return out;
 }
 
@@ -50,9 +48,7 @@ async function encryptionKey(): Promise<CryptoKey> {
       raw = fromB64(configured);
     }
     if (raw.length !== 32) {
-      throw new Error(
-        "S3_CREDENTIAL_ENCRYPTION_KEY must decode to 32 bytes",
-      );
+      throw new Error("S3_CREDENTIAL_ENCRYPTION_KEY must decode to 32 bytes");
     }
   } else {
     // Dev fallback: deterministic derivation from the RustFS root
@@ -72,9 +68,7 @@ async function encryptionKey(): Promise<CryptoKey> {
 }
 
 /** AES-GCM encrypt. Returns "ivB64.cipherB64". */
-export async function encryptSecret(
-  plaintext: string,
-): Promise<string> {
+export async function encryptSecret(plaintext: string): Promise<string> {
   const key = await encryptionKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const buf = await crypto.subtle.encrypt(
@@ -92,11 +86,7 @@ export async function decryptSecret(cipher: string): Promise<string> {
   if (!ivB64 || !dataB64) throw new Error("Invalid encrypted secret");
   const iv = fromB64(ivB64);
   const data = fromB64(dataB64);
-  const buf = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
-    key,
-    data,
-  );
+  const buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
   return new TextDecoder().decode(buf);
 }
 

@@ -1,5 +1,5 @@
-import { internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireDevSeed } from "./devGuard";
 
@@ -94,15 +94,11 @@ export const backfillAll = internalMutation({
       // Storage metrics.
       const storageAccounts = await ctx.db
         .query("storageAccounts")
-        .withIndex("by_workspace", (q) =>
-          q.eq("workspaceId", ws._id),
-        )
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", ws._id))
         .collect();
       const wsBuckets = await ctx.db
         .query("buckets")
-        .withIndex("by_workspace", (q) =>
-          q.eq("workspaceId", ws._id),
-        )
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", ws._id))
         .collect();
       await setCounter(ctx, ws._id, "storageAccounts", storageAccounts.length);
       await setCounter(ctx, ws._id, "buckets", wsBuckets.length);

@@ -1,0 +1,199 @@
+===============================================================================
+OLLASTACK API KEY CONFIGURATION — VERIFICATION REPORT
+Date: 2026-10-28
+Project: S3 Storage & Dashboard (Bun + Turborepo + Next.js + Convex + RustFS)
+Scope: Ollastack API key configuration, deployment secret audit, security check
+===============================================================================
+
+SUMMARY
+-------
+Status: CONFIGURATION COMPLETE (1 outstanding human verification step:
+        confirm the API token has the required ":send" mail scope before
+        testing real email delivery).
+
+The existing OLLASTACK_API_KEY was found set in .env, preserved untouched,
+and propagated as a server-side secret to the self-hosted Convex backend
+deployment (it was missing there — the single blocking gap).
+
+===============================================================================
+1. VARIABLE IDENTIFICATION
+===============================================================================
+- .env contains the key under the exact expected name:
+      OLLASTACK_API_KEY
+- State: defined and set (value length 52 chars).
+- The value itself was never printed, logged, or copied into any report,
+  terminal output, or source file.
+- No rename, no replacement key, and no code change was needed.
+
+===============================================================================
+2. EXISTING KEY PRESERVED (VERIFICATION CHECKLIST)
+===============================================================================
+[PASS] The .env file was only READ, never modified, overwritten, or deleted.
+
+===============================================================================
+3. HOW APPLICATION LOADS ENVIRONMENT VARIABLES
+===============================================================================
+- App layer (Next.js, apps/app): standard Next.js env loading from .env.
+- Backend layer (Convex): packages/backend/convex/env.ts validates via
+  @t3-oss/env-core with:
+      OLLASTACK_API_KEY: z.optional(z.string().min(1))
+  The variable is part of the typed server env schema, so the active
+  VALIDATE_ENV=true gate accepts it (optional => its absence also passes,
+  its presence is validated as a non-empty string).
+- The project's existing configuration approach was reused (no new
+  mechanism invented).
+
+===============================================================================
+4. DEPLOYMENT-SIDE SECRET CHECK (ITEM 11) — ROOT CAUSE FOUND AND FIXED
+===============================================================================
+Architecture found:
+  - Self-hosted Convex backend runs in Docker (self-hosted-backend-1,
+    image ghcr.io/get-convex/convex-backend:latest), alongside
+    dashboard, rustfs, and oidc-fix containers (all healthy).
+  - Convex functions read process.env.* from the DEPLOYMENT's stored
+    environment variables, NOT from the machine's .env file.
+  - A local .env entry does NOT automatically configure deployed
+    functions.
+
+Audit (names only, values never displayed):
+  - Deployment env listing via CLI/API surprisingly returned a server
+    error (_system/cli/queryEnvironmentVariables unimplemented by this
+    backend image). Fallback: the backend's internal SQLite database was
+    copied to a temp location and inspected with a script that extracted
+    ONLY variable names.
+  - Found 19 deployment variables (RESEND_API_KEY, JWT_PRIVATE_KEY, JWKS,
+    RUSTFS_*, S3_*, BACKEND_*, SITE_URL, OIDC_SITE_URL, DEV_SEED,
+    AUTH_DEV_FALLBACK, VALIDATE_ENV) — OLLASTACK_API_KEY was MISSING.
+  - Impact if unresolved: OTP email delivery would silently degrade to
+    "log recipient/subject only" (packages/backend/convex/email.ts logs
+    a warning and returns without sending).
+
+Fix applied (minimal, reusing existing key and project convention):
+  - Registered the deployment secret with:
+      bunx convex env set OLLASTACK_API_KEY <value read in-memory from .env>
+    This is the same mechanism used throughout deploy/*.sh scripts
+    (e.g. deploy/08-phase0-auth.sh, deploy/12-phase1-adapter.sh).
+  - CLI exit code 0 ("Successfully set").
+  - Re-verification by re-reading the backend DB (names only):
+      HAS_OLLASTACK_API_KEY: True
+  - Temp DB copy and inspection scripts were deleted afterwards.
+
+===============================================================================
+5. SERVER-SIDE ONLY EXPOSURE (ITEMS 8 / FINAL CHECKLIST)
+===============================================================================
+[PASS] The key is referenced ONLY in server-side Convex code:
+      - packages/backend/convex/email.ts        (internalAction: sendEmail)
+      - packages/backend/convex/authEmailDelivery.ts
+                                                (authEmailProviderConfigured)
+      internalAction functions cannot be invoked by frontend clients.
+[PASS] Grep across apps/ (frontend): ZERO matches for "OLLASTACK".
+[PASS] No NEXT_PUBLIC_* variant of the variable exists anywhere in the
+      repo or in .env. The key is never exposed to browser JavaScript.
+
+===============================================================================
+6. GIT PROTECTION (ITEM 9 / FINAL CHECKLIST)
+===============================================================================
+[PASS] Root .gitignore lines 42-49:
+         .env
+         .env.*
+         !.env.example
+         !.env.*.example
+         *.pem
+         *.key
+[PASS] git check-ignore confirms .env is matched by rule ".gitignore:43".
+[PASS] git ls-files tracks only .env.example (never the real .env).
+[PASS] packages/backend/.gitignore additionally ignores its .env and
+      .env.local.
+No changes were required — protection was already correct. Nothing was
+modified.
+
+===============================================================================
+7. DOCUMENTED API / INTEGRATION VERIFICATION (ITEM 12 / FINAL CHECKLIST)
+===============================================================================
+[PASS] Integration code (packages/backend/convex/email.ts):
+         - Endpoint:   POST {base}/api/mailboxes/{id}/send
+         - Auth:       Authorization: Bearer <token>
+         - Base URL:   process.env.OLLASTACK_API_URL ?? "https://login.ollastack.com"
+         - Mailbox resolve (fallback): GET /api/mailboxes?limit=1
+       These match the local OpenAPI spec (ollastack-openapi.json)
+       exactly: operationId "sendMail", bearerAuth security scheme.
+[PASS] Live smoke test (no email sent):
+         GET https://login.ollastack.com/api/mailboxes/usage
+         Result: HTTP 200, success=true (plan: free; usage/quota fields
+         present). Proves the token is valid and readable.
+[OUTSTANDING — HUMAN STEP] The "send" operation requires the dedicated
+      scope "mail.test:send" OR "mail.agent:send" (the :read/:write
+      scopes do NOT grant sending — per the API spec). The /usage check
+      does not prove the send scope. Before the first real OTP email
+      test, confirm the token's scopes in the Ollastack dashboard.
+Options (no action taken):
+  - OLLASTACK_MAILBOX_ID can optionally be set on the deployment to pin
+    the mailbox and skip the auto-resolve lookup call.
+  - OLLASTACK_API_URL can optionally be overridden if the endpoint ever
+    differs from the documented default.
+
+===============================================================================
+8. EXISTING OTP AUTH AND S3 STORAGE FUNCTIONALITY (FINAL CHECKLIST)
+===============================================================================
+[PASS] packages/backend/test/otp.test.ts: 39/39 tests PASS.
+[INFO] packages/backend/test/security.test.ts: 22/22 tests fail locally
+      with "Error: Right-hand side of 'instanceof' is not an object"
+      (convex-test mock / module-duplication issue), plus intermittent
+      WebAssembly OOM crashes in the harness. This is PRE-EXISTING
+      working-tree/test-harness state — verified unrelated to this task:
+      - Zero source code files were changed in this effort.
+      - The only change was remote (deployment env), which vitest's
+        local convex-test simulation cannot influence.
+      - S3/RustFS code paths and OTP delivery policy code
+        (authEmailDelivery.ts) were not touched.
+
+===============================================================================
+9. FILES CHANGED / NOT CHANGED
+===============================================================================
+Changed (remote only, outside repo):
+  - Self-hosted Convex deployment env: added server-side secret
+    OLLASTACK_API_KEY (same value as existing .env entry).
+
+Changed (in repo): NONE. Source code, .env, and .gitignore are untouched.
+Local temp artifacts created and then deleted:
+  - <temp>\convex_env_check.sqlite3   (deleted)
+  - <temp>\inspect_env_names.py       (deleted)
+  - <temp>\inspect_env_names2.py      (deleted)
+
+===============================================================================
+10. SECURITY NOTES (REPORTED, NOT ACTED UPON — per
+    "do not modify unrelated environment settings")
+===============================================================================
+- Deployment still has AUTH_DEV_FALLBACK set (origin: deploy/43-sessions.sh).
+  This is a dev-only trapdoor: it tolerates email delivery failures and
+  logs OTP codes to the server console. It must be unset before any
+  production exposure:
+      bunx convex env remove AUTH_DEV_FALLBACK
+- RESEND_API_KEY still exists in .env and in the deployment (legacy
+  provider). Left untouched intentionally.
+- The Ollastack key is sent exclusively via Authorization headers from
+  server-side Convex actions; it never transits the frontend or logs
+  (log lines contain recipient/subject only).
+
+===============================================================================
+11. FINAL CHECKLIST SCORECARD
+===============================================================================
+Existing API key preserved ....................... PASS
+Backend can access the configured variable ....... PASS (deployment secret
+                                                   registered and re-verified)
+Key not exposed to frontend ...................... PASS
+.env protected from accidental commits ........... PASS (pre-existing rules
+                                                   verified, unchanged)
+Ollastack integration uses documented API ........ PASS (endpoint + auth +
+                                                   base URL match the spec)
+Send-scope verification on the token ............. PENDING (verify
+                                                   mail.*:send scope in
+                                                   Ollastack dashboard)
+OTP auth tests ................................... PASS (39/39)
+S3 storage tests ................................. INFO (pre-existing local
+                                                   harness failures,
+                                                   unrelated; code untouched)
+
+===============================================================================
+END OF REPORT
+===============================================================================

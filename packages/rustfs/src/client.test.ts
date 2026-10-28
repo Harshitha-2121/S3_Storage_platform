@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
+  type Credential,
   RustFSClient,
   RustFSError,
-  type Credential,
   type ServiceAccount,
 } from "./client";
 import { rustfsConfigFromEnv } from "./config";
@@ -100,9 +100,7 @@ afterAll(async () => {
   // Remove only what these tests created. Buckets are drained with
   // the root credential before deletion.
   if (bucketA) {
-    const listing = await client
-      .listObjectsV2(ROOT, bucketA)
-      .catch(() => null);
+    const listing = await client.listObjectsV2(ROOT, bucketA).catch(() => null);
     for (const object of listing?.objects ?? []) {
       await client
         .deleteObject(ROOT, bucketA, object.key)
@@ -149,9 +147,7 @@ describeLive("RustFSClient against the live RustFS instance", () => {
     expect(head?.contentType).toBe("text/plain");
 
     const listing = await client!.listObjectsV2(a, bucketA);
-    expect(listing.objects.map((object) => object.key)).toEqual([
-      "hello.txt",
-    ]);
+    expect(listing.objects.map((object) => object.key)).toEqual(["hello.txt"]);
     expect(listing.keyCount).toBe(1);
 
     const res = await client!.getObject(a, bucketA, "hello.txt");

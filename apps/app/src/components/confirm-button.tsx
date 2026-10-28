@@ -38,10 +38,16 @@ export function ConfirmButton({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
-            {description && <DialogDescription>{description}</DialogDescription>}
+            {description && (
+              <DialogDescription>{description}</DialogDescription>
+            )}
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={busy}
+            >
               Cancel
             </Button>
             <Button

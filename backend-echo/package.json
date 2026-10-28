@@ -1,0 +1,10 @@
+{
+  "name": "backend-echo",
+  "private": true,
+  "type": "module",
+  "description": "Reference external backend with automatic S3 connection provisioning.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/"
+  }
+}

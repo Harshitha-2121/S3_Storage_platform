@@ -15,7 +15,7 @@ import { useDoubleCheck } from "@v1/ui/utils";
 import type { UploadFileResponse } from "@xixixao/uploadstuff/react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Upload } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function DashboardSettings() {
   const t = useScopedI18n("settings");
@@ -51,6 +51,16 @@ export default function DashboardSettings() {
       await updateUsername({ username: value.username || "" });
     },
   });
+
+  // defaultValues snapshot happens while `user` is still loading; sync the
+  // field once the query resolves so the input isn't stuck empty.
+  const loadedUsername = user?.username;
+  useEffect(() => {
+    if (loadedUsername !== undefined) {
+      usernameForm.setFieldValue("username", loadedUsername);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedUsername]);
 
   if (!user) {
     return null;
@@ -147,13 +157,13 @@ export default function DashboardSettings() {
                 onBlur={field.handleBlur}
                 onChange={(e) => field.handleChange(e.target.value)}
                 className={`w-80 bg-transparent ${
-                  field.state.meta?.errors.length > 0 &&
+                  (field.state.meta?.errors?.length ?? 0) > 0 &&
                   "border-destructive focus-visible:ring-destructive"
                 }`}
               />
             )}
           />
-          {usernameForm.state.fieldMeta.username?.errors.length > 0 && (
+          {(usernameForm.state.fieldMeta.username?.errors?.length ?? 0) > 0 && (
             <p className="text-sm text-destructive dark:text-destructive-foreground">
               {usernameForm.state.fieldMeta.username?.errors.join(" ")}
             </p>

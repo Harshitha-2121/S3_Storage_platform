@@ -12,7 +12,11 @@ type Ctx = {
   select: (id: Id<"workspaces">) => void;
 };
 
-const WorkspaceCtx = createContext<Ctx>({ workspaces: [], current: null, select: () => {} });
+const WorkspaceCtx = createContext<Ctx>({
+  workspaces: [],
+  current: null,
+  select: () => {},
+});
 export const useWorkspace = () => useContext(WorkspaceCtx);
 
 /**
@@ -36,7 +40,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
     setCurrent((prev) => {
       if (prev && workspaces.some((w) => w._id === prev)) return prev;
-      const saved = typeof window !== "undefined" ? window.localStorage.getItem("ws") : null;
+      const saved =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem("ws")
+          : null;
       const match = workspaces.find((w) => w._id === saved);
       return match?._id ?? workspaces[0]?._id ?? prev;
     });
@@ -48,7 +55,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <WorkspaceCtx.Provider value={{ workspaces: workspaces ?? [], current, select }}>
+    <WorkspaceCtx.Provider
+      value={{ workspaces: workspaces ?? [], current, select }}
+    >
       {children}
     </WorkspaceCtx.Provider>
   );

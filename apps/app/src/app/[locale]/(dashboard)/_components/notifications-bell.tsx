@@ -47,7 +47,9 @@ export function NotificationsBell() {
                 notifications.map((n: any) => (
                   <div key={n._id} className="px-3 py-2 text-sm">
                     <p className="font-medium text-primary/80">{n.title}</p>
-                    {n.body && <p className="text-xs text-primary/50">{n.body}</p>}
+                    {n.body && (
+                      <p className="text-xs text-primary/50">{n.body}</p>
+                    )}
                     <p className="mt-0.5 text-[10px] text-primary/30">
                       {new Date(n.createdAt).toLocaleString()}
                     </p>

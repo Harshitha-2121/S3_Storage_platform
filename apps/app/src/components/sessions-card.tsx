@@ -25,7 +25,9 @@ export function SessionsCard() {
           onClick={async () => {
             const n = await revokeOthers({});
             toast.success(
-              n === 0 ? "No other sessions" : `Signed out ${n} other session${n > 1 ? "s" : ""}`,
+              n === 0
+                ? "No other sessions"
+                : `Signed out ${n} other session${n > 1 ? "s" : ""}`,
             );
           }}
         >

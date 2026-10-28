@@ -8,7 +8,8 @@
     },
     "build": {
       "env": [
-        "RESEND_API_KEY",
+        "OLLASTACK_API_KEY",
+        "OLLASTACK_MAILBOX_ID",
         "LOOPS_ENDPOINT",
         "LOOPS_API_KEY",
         "OPENPANEL_SECRET_KEY",

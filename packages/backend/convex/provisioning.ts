@@ -19,28 +19,25 @@
 
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   action,
   internalAction,
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
 import { audit } from "./auditLog";
 import { bump } from "./counters";
-import { RustfsError, rustfs } from "./rustfsHelpers";
 import {
   encryptSecret,
   generateAccessKeyId,
   generateSecretKey,
   hashSecret,
 } from "./credCrypto";
-import {
-  isValidBucketName,
-  privateBucketNameForUser,
-} from "./storageValidate";
+import { RustfsError, rustfs } from "./rustfsHelpers";
 import { uniqueAccountCode } from "./storageAccounts";
+import { isValidBucketName, privateBucketNameForUser } from "./storageValidate";
 
 /** User profile fields needed for provisioning (readable from actions). */
 export const getProvisioningUser = internalQuery({
@@ -216,7 +213,10 @@ export const createFirstCredentialForUser = internalMutation({
  */
 export const provisionForUser = internalAction({
   args: { userId: v.id("users") },
-  handler: async (ctx, { userId }): Promise<{
+  handler: async (
+    ctx,
+    { userId },
+  ): Promise<{
     workspaceId: Id<"workspaces">;
     accountId: Id<"storageAccounts">;
     accountCode: string;
@@ -239,10 +239,14 @@ export const provisionForUser = internalAction({
       internal.provisioning.ensureWorkspaceForUser,
       { userId },
     );
-    const { accountId, accountCode }: { accountId: Id<"storageAccounts">; accountCode: string } = await ctx.runMutation(
-      internal.provisioning.ensureAccountForUser,
-      { userId, workspaceId },
-    );
+    const {
+      accountId,
+      accountCode,
+    }: { accountId: Id<"storageAccounts">; accountCode: string } =
+      await ctx.runMutation(internal.provisioning.ensureAccountForUser, {
+        userId,
+        workspaceId,
+      });
 
     const bucketName = privateBucketNameForUser({
       username: profile.username,
@@ -285,10 +289,10 @@ export const provisionForUser = internalAction({
         internal.provisioning.recordBucketForUser,
         { userId, workspaceId, accountId, name: bucketName, rustfsName },
       );
-      bucketRow = await ctx.runQuery(
-        internal.provisioning.findBucketForUser,
-        { accountId, name: bucketName },
-      );
+      bucketRow = await ctx.runQuery(internal.provisioning.findBucketForUser, {
+        accountId,
+        name: bucketName,
+      });
       if (!bucketRow) {
         throw new ConvexError("Bucket record missing after provisioning");
       }
@@ -344,7 +348,9 @@ export const provisionDefaultStorage = action({
   args: {},
   // Explicit return type breaks the inference cycle through the generated
   // `internal` API object (which is built from this module's own types).
-  handler: async (ctx): Promise<{
+  handler: async (
+    ctx,
+  ): Promise<{
     workspaceId: Id<"workspaces">;
     accountId: Id<"storageAccounts">;
     accountCode: string;

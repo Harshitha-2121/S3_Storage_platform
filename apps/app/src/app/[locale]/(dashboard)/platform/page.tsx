@@ -28,7 +28,10 @@ function Card({
     </div>
   );
 }
-function Row({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
+function Row({
+  left,
+  right,
+}: { left: React.ReactNode; right: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
       <span className="truncate font-mono text-primary/80">{left}</span>
@@ -79,7 +82,9 @@ export default function PlatformPage() {
 
   if (!current) {
     return (
-      <div className="p-8 text-sm text-primary/60">Setting up your workspace…</div>
+      <div className="p-8 text-sm text-primary/60">
+        Setting up your workspace…
+      </div>
     );
   }
 
@@ -134,7 +139,19 @@ export default function PlatformPage() {
                 <span className="text-primary/80">
                   {inv.workspaceName ?? "workspace"} · {inv.role}
                 </span>
-                <Button size="sm" onClick={() => acceptInvite({ inviteId: inv._id })}>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await acceptInvite({ inviteId: inv._id });
+                      toast.success("Invite accepted");
+                    } catch (err: any) {
+                      toast.error(
+                        err?.data ?? err?.message ?? "Failed to accept invite",
+                      );
+                    }
+                  }}
+                >
                   Accept
                 </Button>
               </div>
@@ -144,245 +161,270 @@ export default function PlatformPage() {
 
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
           <div className="space-y-6">
-          <Card
-            title="Members"
-            action={
-              <form
-                className="flex items-center gap-1"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!inviteEmail) return;
-                  try {
-                    await sendInvite({
-                      workspaceId: current,
-                      email: inviteEmail,
-                      role: inviteRole,
-                    });
-                    setInviteEmail("");
-                    toast.success("Invitation sent");
-                  } catch (err: any) {
-                    toast.error(err?.data ?? err?.message ?? "Failed to send invite");
-                  }
-                }}
-              >
-                <input
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="email to invite"
-                  type="email"
-                  className="w-40 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                />
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="rounded-md border border-border bg-background px-1 py-1 text-xs"
+            <Card
+              title="Members"
+              action={
+                <form
+                  className="flex items-center gap-1"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!inviteEmail) return;
+                    try {
+                      await sendInvite({
+                        workspaceId: current,
+                        email: inviteEmail,
+                        role: inviteRole,
+                      });
+                      setInviteEmail("");
+                      toast.success("Invitation sent");
+                    } catch (err: any) {
+                      toast.error(
+                        err?.data ?? err?.message ?? "Failed to send invite",
+                      );
+                    }
+                  }}
                 >
-                  <option value="member">member</option>
-                  <option value="admin">admin</option>
-                </select>
-                <Button size="sm" variant="outline" type="submit">
-                  Invite
-                </Button>
-              </form>
-            }
-          >
-            {members?.length ? (
-              members.map((m) => (
+                  <input
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="email to invite"
+                    type="email"
+                    className="w-40 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="rounded-md border border-border bg-background px-1 py-1 text-xs"
+                  >
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                  </select>
+                  <Button size="sm" variant="outline" type="submit">
+                    Invite
+                  </Button>
+                </form>
+              }
+            >
+              {members?.length ? (
+                members.map((m) => (
+                  <Row
+                    key={m._id}
+                    left={m.name ?? m.email ?? "—"}
+                    right={
+                      canManage && m.role !== "owner" ? (
+                        <span className="flex items-center gap-2">
+                          <select
+                            value={m.role}
+                            onChange={async (e) => {
+                              try {
+                                await changeRole({
+                                  workspaceId: current,
+                                  memberId: m._id,
+                                  role: e.target.value,
+                                });
+                                toast.success("Role updated");
+                              } catch (err: any) {
+                                toast.error(
+                                  err?.data ??
+                                    err?.message ??
+                                    "Failed to update role",
+                                );
+                              }
+                            }}
+                            className="rounded border border-border bg-background px-1 py-0.5 text-xs"
+                          >
+                            <option value="member">member</option>
+                            <option value="admin">admin</option>
+                          </select>
+                          <ConfirmButton
+                            label="remove"
+                            title="Remove member?"
+                            description={m.name ?? m.email ?? undefined}
+                            confirmLabel="Remove"
+                            onConfirm={async () => {
+                              try {
+                                await removeMember({
+                                  workspaceId: current,
+                                  memberId: m._id,
+                                });
+                                toast.success("Member removed");
+                              } catch (err: any) {
+                                toast.error(
+                                  err?.data ??
+                                    err?.message ??
+                                    "Failed to remove member",
+                                );
+                              }
+                            }}
+                          />
+                        </span>
+                      ) : (
+                        m.role
+                      )
+                    }
+                  />
+                ))
+              ) : (
+                <Empty>No members</Empty>
+              )}
+              {pending?.map((inv) => (
                 <Row
-                  key={m._id}
-                  left={m.name ?? m.email ?? "—"}
+                  key={inv._id}
+                  left={`⏳ ${inv.email}`}
                   right={
-                    canManage && m.role !== "owner" ? (
-                      <span className="flex items-center gap-2">
-                        <select
-                          value={m.role}
-                          onChange={async (e) => {
-                            await changeRole({
-                              workspaceId: current,
-                              memberId: m._id,
-                              role: e.target.value,
-                            });
-                            toast.success("Role updated");
-                          }}
-                          className="rounded border border-border bg-background px-1 py-0.5 text-xs"
-                        >
-                          <option value="member">member</option>
-                          <option value="admin">admin</option>
-                        </select>
+                    <span className="flex items-center gap-2">
+                      <span>{`invited · ${inv.role}`}</span>
+                      {canManage && (
                         <ConfirmButton
-                          label="remove"
-                          title="Remove member?"
-                          description={m.name ?? m.email ?? undefined}
-                          confirmLabel="Remove"
+                          label="withdraw"
+                          title="Withdraw invitation?"
+                          description={inv.email}
+                          confirmLabel="Withdraw"
                           onConfirm={async () => {
-                            await removeMember({
-                              workspaceId: current,
-                              memberId: m._id,
-                            });
-                            toast.success("Member removed");
+                            try {
+                              await withdrawInvite({ inviteId: inv._id });
+                              toast.success("Invitation withdrawn");
+                            } catch (err: any) {
+                              toast.error(
+                                err?.data ??
+                                  err?.message ??
+                                  "Failed to withdraw invite",
+                              );
+                            }
                           }}
                         />
-                      </span>
-                    ) : (
-                      m.role
-                    )
+                      )}
+                    </span>
                   }
                 />
-              ))
-            ) : (
-              <Empty>No members</Empty>
-            )}
-            {pending?.map((inv) => (
-              <Row
-                key={inv._id}
-                left={`⏳ ${inv.email}`}
-                right={
-                  <span className="flex items-center gap-2">
-                    <span>{`invited · ${inv.role}`}</span>
-                    {canManage && (
-                      <ConfirmButton
-                        label="withdraw"
-                        title="Withdraw invitation?"
-                        description={inv.email}
-                        confirmLabel="Withdraw"
-                        onConfirm={async () => {
-                          try {
-                            await withdrawInvite({ inviteId: inv._id });
-                            toast.success("Invitation withdrawn");
-                          } catch (err: any) {
-                            toast.error(
-                              err?.data ?? err?.message ?? "Failed to withdraw invite",
-                            );
-                          }
-                        }}
-                      />
-                    )}
-                  </span>
-                }
-              />
-            ))}
-          </Card>
+              ))}
+            </Card>
 
-          <Card
-            title="API keys"
-            action={
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    const name = window.prompt("Key name");
-                    if (name === null) return; // user pressed Cancel: create nothing
-                    const clean = name.trim();
-                    if (!clean) {
-                      toast.error("Please enter a key name");
-                      return;
+            <Card
+              title="API keys"
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const name = window.prompt("Key name");
+                      if (name === null) return; // user pressed Cancel: create nothing
+                      const clean = name.trim();
+                      if (!clean) {
+                        toast.error("Please enter a key name");
+                        return;
+                      }
+                      const r = await createKey({
+                        workspaceId: current,
+                        name: clean,
+                      });
+                      setNewKey(r.key);
+                      toast.success("API key created");
+                    } catch (err: any) {
+                      toast.error(
+                        err?.data ?? err?.message ?? "Failed to create API key",
+                      );
                     }
-                    const r = await createKey({ workspaceId: current, name: clean });
-                    setNewKey(r.key);
-                    toast.success("API key created");
-                  } catch (err: any) {
-                    toast.error(
-                      err?.data ?? err?.message ?? "Failed to create API key",
-                    );
-                  }
-                }}
-              >
-                + Create
-              </Button>
-            }
-          >
-            {newKey && (
-              <div className="m-3 break-all rounded bg-green-500/10 p-2 font-mono text-xs text-green-700">
-                Copy now (shown once): {newKey}
-              </div>
-            )}
-            {keys?.length ? (
-              keys.map((k) => (
-                <Row
-                  key={k._id}
-                  left={`${k.name} · ${k.prefix}…`}
-                  right={
-                    k.revoked ? (
-                      "revoked"
-                    ) : (
-                      <ConfirmButton
-                        label="revoke"
-                        title="Revoke API key?"
-                        description={`${k.name} · ${k.prefix}…`}
-                        confirmLabel="Revoke"
-                        onConfirm={async () => {
-                          try {
-                            await revokeKey({ id: k._id });
-                            toast.success("Key revoked");
-                          } catch (err: any) {
-                            toast.error(
-                              err?.data ?? err?.message ?? "Failed to revoke key",
-                            );
-                          }
-                        }}
-                      />
-                    )
-                  }
-                />
-              ))
-            ) : (
-              <Empty>No keys</Empty>
-            )}
-          </Card>
+                  }}
+                >
+                  + Create
+                </Button>
+              }
+            >
+              {newKey && (
+                <div className="m-3 break-all rounded bg-green-500/10 p-2 font-mono text-xs text-green-700">
+                  Copy now (shown once): {newKey}
+                </div>
+              )}
+              {keys?.length ? (
+                keys.map((k) => (
+                  <Row
+                    key={k._id}
+                    left={`${k.name} · ${k.prefix}…`}
+                    right={
+                      k.revoked ? (
+                        "revoked"
+                      ) : (
+                        <ConfirmButton
+                          label="revoke"
+                          title="Revoke API key?"
+                          description={`${k.name} · ${k.prefix}…`}
+                          confirmLabel="Revoke"
+                          onConfirm={async () => {
+                            try {
+                              await revokeKey({ id: k._id });
+                              toast.success("Key revoked");
+                            } catch (err: any) {
+                              toast.error(
+                                err?.data ??
+                                  err?.message ??
+                                  "Failed to revoke key",
+                              );
+                            }
+                          }}
+                        />
+                      )
+                    }
+                  />
+                ))
+              ) : (
+                <Empty>No keys</Empty>
+              )}
+            </Card>
           </div>
           <div className="space-y-6">
-          <Card title="Usage">
-            {usage?.length ? (
-              usage.map((u) => (
-                <Row key={u._id} left={u.metric} right={String(u.count)} />
-              ))
-            ) : (
-              <Empty>No usage yet</Empty>
-            )}
-          </Card>
+            <Card title="Usage">
+              {usage?.length ? (
+                usage.map((u) => (
+                  <Row key={u._id} left={u.metric} right={String(u.count)} />
+                ))
+              ) : (
+                <Empty>No usage yet</Empty>
+              )}
+            </Card>
 
-          <Card title="Audit log">
-            {audit?.length ? (
-              <>
-                {(auditExpanded ? audit : audit.slice(0, AUDIT_PREVIEW)).map(
-                  (a) => (
-                    <Row
-                      key={a._id}
-                      left={a.action}
-                      right={new Date(a.at).toLocaleTimeString()}
-                    />
-                  ),
-                )}
-                {audit.length > AUDIT_PREVIEW && (
-                  <button
-                    onClick={() => setAuditExpanded((v) => !v)}
-                    className="w-full px-4 py-2.5 text-center text-xs font-medium text-primary/60 hover:text-primary"
-                  >
-                    {auditExpanded
-                      ? "Show less"
-                      : `See more (${audit.length - AUDIT_PREVIEW} more)`}
-                  </button>
-                )}
-              </>
-            ) : (
-              <Empty>No activity</Empty>
-            )}
-          </Card>
+            <Card title="Audit log">
+              {audit?.length ? (
+                <>
+                  {(auditExpanded ? audit : audit.slice(0, AUDIT_PREVIEW)).map(
+                    (a) => (
+                      <Row
+                        key={a._id}
+                        left={a.action}
+                        right={new Date(a.at).toLocaleTimeString()}
+                      />
+                    ),
+                  )}
+                  {audit.length > AUDIT_PREVIEW && (
+                    <button
+                      onClick={() => setAuditExpanded((v) => !v)}
+                      className="w-full px-4 py-2.5 text-center text-xs font-medium text-primary/60 hover:text-primary"
+                    >
+                      {auditExpanded
+                        ? "Show less"
+                        : `See more (${audit.length - AUDIT_PREVIEW} more)`}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <Empty>No activity</Empty>
+              )}
+            </Card>
 
-          <Card title="Events (from backend)">
-            {events?.length ? (
-              events.map((ev) => (
-                <Row
-                  key={ev._id}
-                  left={eventLabel(ev)}
-                  right={new Date(ev.receivedAt).toLocaleTimeString()}
-                />
-              ))
-            ) : (
-              <Empty>No events yet</Empty>
-            )}
-          </Card>
+            <Card title="Events (from backend)">
+              {events?.length ? (
+                events.map((ev) => (
+                  <Row
+                    key={ev._id}
+                    left={eventLabel(ev)}
+                    right={new Date(ev.receivedAt).toLocaleTimeString()}
+                  />
+                ))
+              ) : (
+                <Empty>No events yet</Empty>
+              )}
+            </Card>
           </div>
         </div>
       </div>

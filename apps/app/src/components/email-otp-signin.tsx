@@ -24,7 +24,7 @@ export function EmailOtpSignin() {
           setError(null);
           const fd = new FormData(e.currentTarget);
           setPending(true);
-          void signIn("resend-otp", fd)
+          void signIn("ollastack-otp", fd)
             .then(() => setStep({ email: fd.get("email") as string }))
             .catch((err) => {
               const msg =
@@ -47,7 +47,12 @@ export function EmailOtpSignin() {
           placeholder="you@example.com"
           className={inputCls}
         />
-        <Button type="submit" variant="outline" className="font-mono" disabled={pending}>
+        <Button
+          type="submit"
+          variant="outline"
+          className="font-mono"
+          disabled={pending}
+        >
           {pending ? "Sending…" : "Send code"}
         </Button>
         {error && <p className="text-xs text-red-500">{error}</p>}
@@ -64,17 +69,19 @@ export function EmailOtpSignin() {
         const fd = new FormData(e.currentTarget);
         setPending(true);
         try {
-          const res = await signIn("resend-otp", fd);
-          if (!res || (typeof res === "object" && "signingIn" in res && res.signingIn) || res === null) {
+          const res = await signIn("ollastack-otp", fd);
+          if (
+            !res ||
+            (typeof res === "object" && "signingIn" in res && res.signingIn) ||
+            res === null
+          ) {
             window.location.href = "/";
             return;
           }
           window.location.href = "/";
         } catch (err) {
           const msg =
-            (err as { data?: unknown })?.data ??
-            (err as Error)?.message ??
-            "";
+            (err as { data?: unknown })?.data ?? (err as Error)?.message ?? "";
           setError(
             typeof msg === "string" && msg
               ? msg

@@ -131,7 +131,9 @@ export default function FilesPage() {
                       <span className="text-primary/80">{f.name}</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-primary/60">{fmtSize(f.size)}</td>
+                  <td className="px-4 py-3 text-primary/60">
+                    {fmtSize(f.size)}
+                  </td>
                   <td className="px-4 py-3 text-primary/50">
                     {new Date(f.createdAt).toLocaleString()}
                   </td>

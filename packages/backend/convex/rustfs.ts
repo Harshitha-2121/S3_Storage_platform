@@ -9,12 +9,12 @@
 // HTTP gateway and by standalone integration tests.
 
 import {
+  type Credential,
   EMPTY_PAYLOAD_HASH,
   UNSIGNED_PAYLOAD,
   presignUrl,
   sha256Hex,
   signRequest,
-  type Credential,
 } from "./sigv4";
 
 export type RustfsConfig = {
@@ -28,20 +28,22 @@ export type RustfsConfig = {
 
 /** Build the config from the deployment's server-side env vars. */
 export function configFromEnv(): RustfsConfig {
-  const endpoint = process.env.RUSTFS_ENDPOINT;
-  const accessKeyId = process.env.RUSTFS_ACCESS_KEY;
-  const secretAccessKey = process.env.RUSTFS_SECRET_KEY;
-  if (!endpoint || !accessKeyId || !secretAccessKey) {
-    throw new Error(
-      "RustFS is not configured (RUSTFS_ENDPOINT / RUSTFS_ACCESS_KEY / RUSTFS_SECRET_KEY)",
-    );
-  }
+  const endpoint =
+    process.env.RUSTFS_ENDPOINT ||
+    (typeof process !== "undefined" && process.env.CONVEX_SELF_HOSTED_URL
+      ? "http://rustfs:9000"
+      : "http://127.0.0.1:9000");
+  const accessKeyId = process.env.RUSTFS_ACCESS_KEY || "HarshithaDev2026";
+  const secretAccessKey =
+    process.env.RUSTFS_SECRET_KEY || "LocalDevSecret-Change-This-9284";
   return {
     endpoint,
     // Browsers cannot reach container-internal names (e.g. http://rustfs:9000),
     // so presigned URLs use the public endpoint. Server-side fetches always
     // use `endpoint`.
-    publicEndpoint: process.env.RUSTFS_PUBLIC_ENDPOINT || endpoint,
+    publicEndpoint:
+      process.env.RUSTFS_PUBLIC_ENDPOINT ||
+      (endpoint.includes("rustfs") ? "http://127.0.0.1:9000" : endpoint),
     accessKeyId,
     secretAccessKey,
     region: process.env.RUSTFS_REGION || "us-east-1",
@@ -110,16 +112,13 @@ async function rustfsFetch(
 ): Promise<Response> {
   const url = new URL(cfg.endpoint + path);
   if (opts.query) {
-    for (const [k, v] of Object.entries(opts.query))
-      url.searchParams.set(k, v);
+    for (const [k, v] of Object.entries(opts.query)) url.searchParams.set(k, v);
   }
   // Compute the payload hash unless the caller supplied one (e.g. a
   // declared hash for streaming, or UNSIGNED-PAYLOAD for presigned).
   let payloadHash = opts.payloadHash;
   if (payloadHash === undefined) {
-    payloadHash = opts.body
-      ? await sha256Hex(opts.body)
-      : EMPTY_PAYLOAD_HASH;
+    payloadHash = opts.body ? await sha256Hex(opts.body) : EMPTY_PAYLOAD_HASH;
   }
   const headers = await signRequest({
     method,
@@ -133,7 +132,12 @@ async function rustfsFetch(
     headers: opts.headers ?? {},
     payloadHash,
   });
-  return fetch(url, { method, headers, body: opts.body });
+  return fetch(url, {
+    method,
+    headers,
+    body: opts.body,
+    signal: AbortSignal.timeout(30_000),
+  });
 }
 
 async function expectOk(
@@ -154,9 +158,7 @@ async function expectOk(
 
 export type RustfsBucket = { name: string; createdAt: string };
 
-export async function listBuckets(
-  cfg: RustfsConfig,
-): Promise<RustfsBucket[]> {
+export async function listBuckets(cfg: RustfsConfig): Promise<RustfsBucket[]> {
   const res = await expectOk(cfg, "GET", "/");
   const xml = await res.text();
   const names = xmlTags(xml, "Name");
@@ -181,10 +183,7 @@ export async function createBucket(
 // Dashboard origins allowed to use presigned URLs directly from the browser.
 // Without this, browser PUT/GET to RustFS fails CORS preflight ("Failed to fetch")
 // while curl/SDK uploads keep working.
-const BROWSER_CORS_ORIGINS = [
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-];
+const BROWSER_CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"];
 
 /** Set bucket CORS so browser direct uploads/downloads work. Best-effort caller-side. */
 export async function putBucketCors(
@@ -212,7 +211,10 @@ export async function getBucketCors(
     const res = await expectOk(cfg, "GET", `/${name}`, { query: { cors: "" } });
     return await res.text();
   } catch (e) {
-    if (e instanceof RustfsError && (e.code === "NoSuchCORSConfiguration" || e.status === 404)) {
+    if (
+      e instanceof RustfsError &&
+      (e.code === "NoSuchCORSConfiguration" || e.status === 404)
+    ) {
       return null;
     }
     throw e;
@@ -233,7 +235,9 @@ export async function getBucketTagging(
   name: string,
 ): Promise<Array<{ key: string; value: string }>> {
   try {
-    const res = await expectOk(cfg, "GET", `/${name}`, { query: { tagging: "" } });
+    const res = await expectOk(cfg, "GET", `/${name}`, {
+      query: { tagging: "" },
+    });
     const xml = await res.text();
     const blocks = xml.match(/<Tag>[\s\S]*?<\/Tag>/g) ?? [];
     return blocks.map((b) => ({
@@ -241,7 +245,10 @@ export async function getBucketTagging(
       value: xmlTag(b, "Value") ?? "",
     }));
   } catch (e) {
-    if (e instanceof RustfsError && (e.code === "NoSuchTagSet" || e.status === 404)) {
+    if (
+      e instanceof RustfsError &&
+      (e.code === "NoSuchTagSet" || e.status === 404)
+    ) {
       return [];
     }
     throw e;
@@ -254,7 +261,10 @@ export async function putBucketTagging(
   tags: Array<{ key: string; value: string }>,
 ): Promise<void> {
   const tagXml = tags
-    .map((t) => `<Tag><Key>${escapeXmlTag(t.key)}</Key><Value>${escapeXmlTag(t.value)}</Value></Tag>`)
+    .map(
+      (t) =>
+        `<Tag><Key>${escapeXmlTag(t.key)}</Key><Value>${escapeXmlTag(t.value)}</Value></Tag>`,
+    )
     .join("");
   const body = new TextEncoder().encode(
     `<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet>${tagXml}</TagSet></Tagging>`,
@@ -277,7 +287,9 @@ export async function getBucketVersioning(
   cfg: RustfsConfig,
   name: string,
 ): Promise<"Enabled" | "Suspended" | "Off"> {
-  const res = await expectOk(cfg, "GET", `/${name}`, { query: { versioning: "" } });
+  const res = await expectOk(cfg, "GET", `/${name}`, {
+    query: { versioning: "" },
+  });
   const xml = await res.text();
   const status = xmlTag(xml, "Status");
   if (status === "Enabled") return "Enabled";
@@ -318,7 +330,10 @@ export async function headBucket(
     await expectOk(cfg, "HEAD", `/${name}`);
     return true;
   } catch (e) {
-    if (e instanceof RustfsError && (e.code === "NoSuchBucket" || e.code === "NotFound" || e.status === 404)) {
+    if (
+      e instanceof RustfsError &&
+      (e.code === "NoSuchBucket" || e.code === "NotFound" || e.status === 404)
+    ) {
       return false;
     }
     throw e;
@@ -330,6 +345,18 @@ export async function deleteBucket(
   name: string,
 ): Promise<void> {
   await expectOk(cfg, "DELETE", `/${name}`);
+}
+
+export async function getBucketLocation(
+  cfg: RustfsConfig,
+  name: string,
+): Promise<string> {
+  const res = await expectOk(cfg, "GET", `/${name}`, {
+    query: { location: "" },
+  });
+  const xml = await res.text();
+  const constraint = xmlTag(xml, "LocationConstraint");
+  return constraint || cfg.region || "us-east-1";
 }
 
 // --- Object operations ---
@@ -361,39 +388,262 @@ export type HeadObjectResult = {
   contentType: string;
   etag: string;
   lastModified: string;
+  versionId?: string;
+  deleteMarker?: boolean;
 };
 
 export async function headObject(
   cfg: RustfsConfig,
   bucket: string,
   key: string,
+  versionId?: string,
 ): Promise<HeadObjectResult | null> {
   try {
-    const res = await expectOk(
-      cfg,
-      "HEAD",
-      `/${bucket}/${encodeKey(key)}`,
-    );
+    const query = versionId ? { versionId } : undefined;
+    const res = await expectOk(cfg, "HEAD", `/${bucket}/${encodeKey(key)}`, {
+      query,
+    });
     return {
       size: Number(res.headers.get("content-length") ?? "0"),
-      contentType: res.headers.get("content-type") ?? "application/octet-stream",
+      contentType:
+        res.headers.get("content-type") ?? "application/octet-stream",
       etag: res.headers.get("etag") ?? "",
       lastModified: res.headers.get("last-modified") ?? "",
+      versionId: res.headers.get("x-amz-version-id") ?? undefined,
+      deleteMarker: res.headers.get("x-amz-delete-marker") === "true",
     };
   } catch (e) {
-    if (e instanceof RustfsError && (e.status === 404 || e.code === "NoSuchKey" || e.code === "NotFound")) {
+    if (
+      e instanceof RustfsError &&
+      (e.status === 404 || e.code === "NoSuchKey" || e.code === "NotFound")
+    ) {
       return null;
     }
     throw e;
   }
 }
 
+export type DeleteObjectResult = {
+  deleteMarker?: boolean;
+  versionId?: string;
+};
+
 export async function deleteObject(
   cfg: RustfsConfig,
   bucket: string,
   key: string,
+  versionId?: string,
+): Promise<DeleteObjectResult> {
+  const query = versionId ? { versionId } : undefined;
+  const res = await expectOk(cfg, "DELETE", `/${bucket}/${encodeKey(key)}`, {
+    query,
+  });
+  return {
+    deleteMarker: res.headers.get("x-amz-delete-marker") === "true",
+    versionId: res.headers.get("x-amz-version-id") ?? undefined,
+  };
+}
+
+export type DeleteObjectsResult = {
+  deleted: Array<{
+    key: string;
+    versionId?: string;
+    deleteMarker?: boolean;
+    deleteMarkerVersionId?: string;
+  }>;
+  errors: Array<{
+    key: string;
+    versionId?: string;
+    code: string;
+    message: string;
+  }>;
+};
+
+export async function deleteObjects(
+  cfg: RustfsConfig,
+  bucket: string,
+  objects: Array<{ key: string; versionId?: string }>,
+  quiet = false,
+): Promise<DeleteObjectsResult> {
+  const objXml = objects
+    .map(
+      (o) =>
+        `<Object><Key>${escapeXmlTag(o.key)}</Key>${
+          o.versionId ? `<VersionId>${escapeXmlTag(o.versionId)}</VersionId>` : ""
+        }</Object>`,
+    )
+    .join("");
+  const quietXml = quiet ? "<Quiet>true</Quiet>" : "";
+  const body = new TextEncoder().encode(
+    `<Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/">${quietXml}${objXml}</Delete>`,
+  );
+  const res = await expectOk(cfg, "POST", `/${bucket}`, {
+    query: { delete: "" },
+    headers: { "content-type": "application/xml" },
+    body,
+  });
+  const xml = await res.text();
+  const delBlocks = xml.match(/<Deleted>[\s\S]*?<\/Deleted>/g) ?? [];
+  const deleted = delBlocks.map((b) => ({
+    key: xmlTag(b, "Key") ?? "",
+    versionId: xmlTag(b, "VersionId"),
+    deleteMarker: xmlTag(b, "DeleteMarker") === "true",
+    deleteMarkerVersionId: xmlTag(b, "DeleteMarkerVersionId"),
+  }));
+  const errBlocks = xml.match(/<Error>[\s\S]*?<\/Error>/g) ?? [];
+  const errors = errBlocks.map((b) => ({
+    key: xmlTag(b, "Key") ?? "",
+    versionId: xmlTag(b, "VersionId"),
+    code: xmlTag(b, "Code") ?? "InternalError",
+    message: xmlTag(b, "Message") ?? "",
+  }));
+  return { deleted, errors };
+}
+
+export async function getObjectTagging(
+  cfg: RustfsConfig,
+  bucket: string,
+  key: string,
+  versionId?: string,
+): Promise<Array<{ key: string; value: string }>> {
+  try {
+    const query: Record<string, string> = { tagging: "" };
+    if (versionId) query.versionId = versionId;
+    const res = await expectOk(cfg, "GET", `/${bucket}/${encodeKey(key)}`, {
+      query,
+    });
+    const xml = await res.text();
+    const blocks = xml.match(/<Tag>[\s\S]*?<\/Tag>/g) ?? [];
+    return blocks.map((b) => ({
+      key: xmlTag(b, "Key") ?? "",
+      value: xmlTag(b, "Value") ?? "",
+    }));
+  } catch (e) {
+    if (
+      e instanceof RustfsError &&
+      (e.code === "NoSuchTagSet" || e.status === 404)
+    ) {
+      return [];
+    }
+    throw e;
+  }
+}
+
+export async function putObjectTagging(
+  cfg: RustfsConfig,
+  bucket: string,
+  key: string,
+  tags: Array<{ key: string; value: string }>,
+  versionId?: string,
 ): Promise<void> {
-  await expectOk(cfg, "DELETE", `/${bucket}/${encodeKey(key)}`);
+  const tagXml = tags
+    .map(
+      (t) =>
+        `<Tag><Key>${escapeXmlTag(t.key)}</Key><Value>${escapeXmlTag(t.value)}</Value></Tag>`,
+    )
+    .join("");
+  const body = new TextEncoder().encode(
+    `<Tagging xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><TagSet>${tagXml}</TagSet></Tagging>`,
+  );
+  const query: Record<string, string> = { tagging: "" };
+  if (versionId) query.versionId = versionId;
+  await expectOk(cfg, "PUT", `/${bucket}/${encodeKey(key)}`, {
+    query,
+    headers: { "content-type": "application/xml" },
+    body,
+  });
+}
+
+export async function deleteObjectTagging(
+  cfg: RustfsConfig,
+  bucket: string,
+  key: string,
+  versionId?: string,
+): Promise<void> {
+  const query: Record<string, string> = { tagging: "" };
+  if (versionId) query.versionId = versionId;
+  await expectOk(cfg, "DELETE", `/${bucket}/${encodeKey(key)}`, { query });
+}
+
+export type RustfsObjectVersion = {
+  key: string;
+  versionId: string;
+  isLatest: boolean;
+  lastModified: string;
+  etag?: string;
+  size?: number;
+};
+
+export type RustfsDeleteMarker = {
+  key: string;
+  versionId: string;
+  isLatest: boolean;
+  lastModified: string;
+};
+
+export type ListObjectVersionsResult = {
+  bucket: string;
+  prefix: string;
+  keyMarker?: string;
+  versionIdMarker?: string;
+  nextKeyMarker?: string;
+  nextVersionIdMarker?: string;
+  maxKeys: number;
+  isTruncated: boolean;
+  versions: RustfsObjectVersion[];
+  deleteMarkers: RustfsDeleteMarker[];
+};
+
+export async function listObjectVersions(
+  cfg: RustfsConfig,
+  bucket: string,
+  opts: {
+    prefix?: string;
+    delimiter?: string;
+    keyMarker?: string;
+    versionIdMarker?: string;
+    maxKeys?: number;
+  } = {},
+): Promise<ListObjectVersionsResult> {
+  const query: Record<string, string> = { versions: "" };
+  if (opts.prefix) query.prefix = opts.prefix;
+  if (opts.delimiter) query.delimiter = opts.delimiter;
+  if (opts.keyMarker) query["key-marker"] = opts.keyMarker;
+  if (opts.versionIdMarker) query["version-id-marker"] = opts.versionIdMarker;
+  if (opts.maxKeys !== undefined) query["max-keys"] = String(opts.maxKeys);
+  const res = await expectOk(cfg, "GET", `/${bucket}`, { query });
+  const xml = await res.text();
+
+  const versionBlocks = xml.match(/<Version>[\s\S]*?<\/Version>/g) ?? [];
+  const versions: RustfsObjectVersion[] = versionBlocks.map((b) => ({
+    key: xmlTag(b, "Key") ?? "",
+    versionId: xmlTag(b, "VersionId") ?? "",
+    isLatest: xmlTag(b, "IsLatest") === "true",
+    lastModified: xmlTag(b, "LastModified") ?? "",
+    etag: (xmlTag(b, "ETag") ?? "").replace(/"/g, ""),
+    size: Number(xmlTag(b, "Size") ?? "0"),
+  }));
+
+  const dmBlocks = xml.match(/<DeleteMarker>[\s\S]*?<\/DeleteMarker>/g) ?? [];
+  const deleteMarkers: RustfsDeleteMarker[] = dmBlocks.map((b) => ({
+    key: xmlTag(b, "Key") ?? "",
+    versionId: xmlTag(b, "VersionId") ?? "",
+    isLatest: xmlTag(b, "IsLatest") === "true",
+    lastModified: xmlTag(b, "LastModified") ?? "",
+  }));
+
+  return {
+    bucket: xmlTag(xml, "Name") ?? bucket,
+    prefix: xmlTag(xml, "Prefix") ?? (opts.prefix ?? ""),
+    keyMarker: xmlTag(xml, "KeyMarker"),
+    versionIdMarker: xmlTag(xml, "VersionIdMarker"),
+    nextKeyMarker: xmlTag(xml, "NextKeyMarker"),
+    nextVersionIdMarker: xmlTag(xml, "NextVersionIdMarker"),
+    maxKeys: Number(xmlTag(xml, "MaxKeys") ?? "1000"),
+    isTruncated: xmlTag(xml, "IsTruncated") === "true",
+    versions,
+    deleteMarkers,
+  };
 }
 
 export async function copyObject(
@@ -483,10 +733,12 @@ export async function presignGet(
   bucket: string,
   key: string,
   expiresSecs: number,
+  versionId?: string,
 ): Promise<string> {
   const url = new URL(
     `${cfg.publicEndpoint ?? cfg.endpoint}/${bucket}/${encodeKey(key)}`,
   );
+  if (versionId) url.searchParams.set("versionId", versionId);
   return presignUrl({
     method: "GET",
     url,
@@ -562,6 +814,120 @@ export async function abortMultipartUpload(
   await expectOk(cfg, "DELETE", `/${bucket}/${encodeKey(key)}`, {
     query: { uploadId },
   });
+}
+
+export type RustfsPart = {
+  partNumber: number;
+  etag: string;
+  size: number;
+  lastModified: string;
+};
+
+export type ListPartsResult = {
+  bucket: string;
+  key: string;
+  uploadId: string;
+  partNumberMarker: number;
+  nextPartNumberMarker?: number;
+  maxParts: number;
+  isTruncated: boolean;
+  parts: RustfsPart[];
+};
+
+export async function listParts(
+  cfg: RustfsConfig,
+  bucket: string,
+  key: string,
+  uploadId: string,
+  opts: {
+    maxParts?: number;
+    partNumberMarker?: number;
+  } = {},
+): Promise<ListPartsResult> {
+  const query: Record<string, string> = { uploadId };
+  if (opts.maxParts !== undefined) query["max-parts"] = String(opts.maxParts);
+  if (opts.partNumberMarker !== undefined)
+    query["part-number-marker"] = String(opts.partNumberMarker);
+  const res = await expectOk(cfg, "GET", `/${bucket}/${encodeKey(key)}`, {
+    query,
+  });
+  const xml = await res.text();
+  const blocks = xml.match(/<Part>[\s\S]*?<\/Part>/g) ?? [];
+  const parts: RustfsPart[] = blocks.map((b) => ({
+    partNumber: Number(xmlTag(b, "PartNumber") ?? "0"),
+    etag: (xmlTag(b, "ETag") ?? "").replace(/"/g, ""),
+    size: Number(xmlTag(b, "Size") ?? "0"),
+    lastModified: xmlTag(b, "LastModified") ?? "",
+  }));
+  return {
+    bucket: xmlTag(xml, "Bucket") ?? bucket,
+    key: xmlTag(xml, "Key") ?? key,
+    uploadId: xmlTag(xml, "UploadId") ?? uploadId,
+    partNumberMarker: Number(xmlTag(xml, "PartNumberMarker") ?? "0"),
+    nextPartNumberMarker: xmlTag(xml, "NextPartNumberMarker")
+      ? Number(xmlTag(xml, "NextPartNumberMarker"))
+      : undefined,
+    maxParts: Number(xmlTag(xml, "MaxParts") ?? "1000"),
+    isTruncated: xmlTag(xml, "IsTruncated") === "true",
+    parts,
+  };
+}
+
+export type RustfsUpload = {
+  key: string;
+  uploadId: string;
+  initiated: string;
+  storageClass?: string;
+};
+
+export type ListMultipartUploadsResult = {
+  bucket: string;
+  keyMarker?: string;
+  uploadIdMarker?: string;
+  nextKeyMarker?: string;
+  nextUploadIdMarker?: string;
+  maxUploads: number;
+  isTruncated: boolean;
+  uploads: RustfsUpload[];
+};
+
+export async function listMultipartUploads(
+  cfg: RustfsConfig,
+  bucket: string,
+  opts: {
+    delimiter?: string;
+    prefix?: string;
+    maxUploads?: number;
+    keyMarker?: string;
+    uploadIdMarker?: string;
+  } = {},
+): Promise<ListMultipartUploadsResult> {
+  const query: Record<string, string> = { uploads: "" };
+  if (opts.delimiter) query.delimiter = opts.delimiter;
+  if (opts.prefix) query.prefix = opts.prefix;
+  if (opts.maxUploads !== undefined)
+    query["max-uploads"] = String(opts.maxUploads);
+  if (opts.keyMarker) query["key-marker"] = opts.keyMarker;
+  if (opts.uploadIdMarker) query["upload-id-marker"] = opts.uploadIdMarker;
+  const res = await expectOk(cfg, "GET", `/${bucket}`, { query });
+  const xml = await res.text();
+  const blocks = xml.match(/<Upload>[\s\S]*?<\/Upload>/g) ?? [];
+  const uploads: RustfsUpload[] = blocks.map((b) => ({
+    key: xmlTag(b, "Key") ?? "",
+    uploadId: xmlTag(b, "UploadId") ?? "",
+    initiated: xmlTag(b, "Initiated") ?? "",
+    storageClass: xmlTag(b, "StorageClass"),
+  }));
+  return {
+    bucket: xmlTag(xml, "Bucket") ?? bucket,
+    keyMarker: xmlTag(xml, "KeyMarker"),
+    uploadIdMarker: xmlTag(xml, "UploadIdMarker"),
+    nextKeyMarker: xmlTag(xml, "NextKeyMarker"),
+    nextUploadIdMarker: xmlTag(xml, "NextUploadIdMarker"),
+    maxUploads: Number(xmlTag(xml, "MaxUploads") ?? "1000"),
+    isTruncated: xmlTag(xml, "IsTruncated") === "true",
+    uploads,
+  };
 }
 
 /** Encode an object key for a path-style URL (slashes preserved). */

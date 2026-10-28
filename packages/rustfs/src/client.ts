@@ -1,15 +1,15 @@
+import type { RustFSConfig } from "./config";
 import {
+  type Credential,
   EMPTY_PAYLOAD_HASH,
   presignUrl,
   sha256Hex,
   signRequest,
-  type Credential,
 } from "./sigv4";
-import type { RustFSConfig } from "./config";
 import {
+  type ParsedObjectListing,
   parseErrorResponse,
   parseListObjectsV2,
-  type ParsedObjectListing,
 } from "./xml";
 
 export type { Credential } from "./sigv4";
@@ -21,7 +21,9 @@ export class RustFSError extends Error {
 
   constructor(status: number, code: string, message: string) {
     super(
-      message ? `${code}: ${message} (HTTP ${status})` : `${code} (HTTP ${status})`,
+      message
+        ? `${code}: ${message} (HTTP ${status})`
+        : `${code} (HTTP ${status})`,
     );
     this.name = "RustFSError";
     this.status = status;
@@ -133,9 +135,7 @@ export class RustFSClient {
     const url = this.buildUrl(`/rustfs/admin/v3/${operation}`, query);
     const res = await this.send(method, url, this.config.rootCredential, {
       headers:
-        body === undefined
-          ? undefined
-          : { "content-type": "application/json" },
+        body === undefined ? undefined : { "content-type": "application/json" },
       body,
     });
     if (!res.ok) throw await this.toError(res);
@@ -146,9 +146,7 @@ export class RustFSClient {
 
   async listUsers(): Promise<ListUsersResult> {
     const res = await this.admin("GET", "list-users");
-    const json = (await res
-      .json()
-      .catch(() => ({}))) as {
+    const json = (await res.json().catch(() => ({}))) as {
       users?: Array<{
         accessKey?: string;
         status?: string;
@@ -285,11 +283,7 @@ export class RustFSClient {
   // ── Data-plane API (account credential) ───────────────────────
 
   async createBucket(credential: Credential, bucket: string): Promise<void> {
-    const res = await this.send(
-      "PUT",
-      this.buildUrl(`/${bucket}`),
-      credential,
-    );
+    const res = await this.send("PUT", this.buildUrl(`/${bucket}`), credential);
     if (!res.ok) throw await this.toError(res);
   }
 
@@ -302,10 +296,7 @@ export class RustFSClient {
     if (!res.ok) throw await this.toError(res);
   }
 
-  async bucketExists(
-    credential: Credential,
-    bucket: string,
-  ): Promise<boolean> {
+  async bucketExists(credential: Credential, bucket: string): Promise<boolean> {
     const res = await this.send(
       "HEAD",
       this.buildUrl(`/${bucket}`),
@@ -432,11 +423,8 @@ export class RustFSClient {
   }
 }
 
-function parseServiceAccount(
-  json: Record<string, unknown>,
-): ServiceAccount {
-  const text = (value: unknown) =>
-    typeof value === "string" ? value : null;
+function parseServiceAccount(json: Record<string, unknown>): ServiceAccount {
+  const text = (value: unknown) => (typeof value === "string" ? value : null);
   return {
     accessKey: text(json.accessKey) ?? "",
     secretKey: text(json.secretKey),

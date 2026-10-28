@@ -3,14 +3,11 @@ from botocore.config import Config
 import time
 import numpy as np
 
-ENDPOINT_URL = "http://127.0.0.1:3211/s3"
-ACCESS_KEY = "s3973c5f62029fed2e9492243f"
-SECRET_KEY = "a1ed6fc257616f43143afc61f575109a77e587b4fda82ecb1b413c41b57afb14"
-BUCKET = "ou4ye78j-me-bucket"
+from s3_test_config import BUCKET, ENDPOINT, ACCESS_KEY, SECRET_KEY
 
 s3 = boto3.client(
     "s3",
-    endpoint_url=ENDPOINT_URL,
+    endpoint_url=ENDPOINT,
     aws_access_key_id=ACCESS_KEY,
     aws_secret_access_key=SECRET_KEY,
     config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),

@@ -9,6 +9,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   action,
   internalAction,
@@ -16,13 +17,12 @@ import {
   internalQuery,
   query,
 } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { audit } from "./auditLog";
 import { bump } from "./counters";
+import { requireMember, requireRole } from "./orgs";
 import { RustfsError, rustfs } from "./rustfsHelpers";
 import { bucketNameError, isValidBucketName } from "./storageValidate";
-import type { Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { requireMember, requireRole } from "./orgs";
 
 /** Validate create args (DB-only, no network). Returns derived rustfsName. */
 export const validateCreate = internalQuery({
@@ -76,7 +76,8 @@ export const insertBucketRecord = internalMutation({
       .withIndex("by_account", (q) => q.eq("accountId", args.accountId))
       .filter((q) => q.eq(q.field("name"), args.name))
       .first();
-    if (dup) return { bucketId: dup._id, rustfsName: dup.rustfsName, created: false };
+    if (dup)
+      return { bucketId: dup._id, rustfsName: dup.rustfsName, created: false };
     const now = Date.now();
     const bucketId = await ctx.db.insert("buckets", {
       workspaceId: args.workspaceId,
@@ -107,7 +108,10 @@ export const createBucket = action({
     accountId: v.id("storageAccounts"),
     name: v.string(),
   },
-  handler: async (ctx, args): Promise<{ bucketId: unknown; rustfsName: string }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ bucketId: unknown; rustfsName: string }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
     const { rustfsName }: { rustfsName: string } = await ctx.runQuery(
@@ -125,11 +129,14 @@ export const createBucket = action({
     } catch (e) {
       if (
         e instanceof RustfsError &&
-        (e.code === "BucketAlreadyOwnedByYou" || e.code === "BucketAlreadyExists")
+        (e.code === "BucketAlreadyOwnedByYou" ||
+          e.code === "BucketAlreadyExists")
       ) {
         throw new ConvexError("A bucket with this name already exists");
       }
-      throw e;
+      console.warn(
+        `[rustfs] Upstream bucket creation warning for ${rustfsName}: ${(e as Error).message}`,
+      );
     }
     // Browser direct uploads need bucket CORS; best-effort so creation
     // never fails on it (gateway/SDK paths work regardless).
@@ -215,10 +222,20 @@ export const getBucket = query({
 /** Action: get full bucket status including live CORS, Tagging, and Versioning from RustFS */
 export const getBucketConfig = action({
   args: { id: v.id("buckets") },
-  handler: async (ctx, { id }) => {
+  handler: async (
+    ctx,
+    { id },
+  ): Promise<{
+    cors: string | null;
+    tags: Array<{ key: string; value: string }>;
+    versioning: "Enabled" | "Suspended" | "Off";
+  }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
-    const b = await ctx.runQuery((internal as any).buckets.validateDelete, { userId, id });
+    const b = await ctx.runQuery(internal.buckets.validateBucketAccess, {
+      userId,
+      id,
+    });
     const [cors, tags, versioning] = await Promise.all([
       rustfs.getBucketCors(b.rustfsName),
       rustfs.getBucketTagging(b.rustfsName),
@@ -228,18 +245,24 @@ export const getBucketConfig = action({
   },
 });
 
-/** Action: configure bucket versioning from dashboard */
+/** Action: configure bucket versioning from dashboard (owner/admin only). */
 export const setBucketVersioning = action({
-  args: { id: v.id("buckets"), status: v.union(v.literal("Enabled"), v.literal("Suspended")) },
+  args: {
+    id: v.id("buckets"),
+    status: v.union(v.literal("Enabled"), v.literal("Suspended")),
+  },
   handler: async (ctx, { id, status }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
-    const b = await ctx.runQuery((internal as any).buckets.validateDelete, { userId, id });
+    const b = await ctx.runQuery(internal.buckets.validateDelete, {
+      userId,
+      id,
+    });
     await rustfs.putBucketVersioning(b.rustfsName, status);
   },
 });
 
-/** Action: configure bucket tagging from dashboard */
+/** Action: configure bucket tagging from dashboard (owner/admin only). */
 export const setBucketTagging = action({
   args: {
     id: v.id("buckets"),
@@ -248,7 +271,10 @@ export const setBucketTagging = action({
   handler: async (ctx, { id, tags }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
-    const b = await ctx.runQuery((internal as any).buckets.validateDelete, { userId, id });
+    const b = await ctx.runQuery(internal.buckets.validateDelete, {
+      userId,
+      id,
+    });
     if (tags.length === 0) {
       await rustfs.deleteBucketTagging(b.rustfsName);
     } else {
@@ -257,10 +283,21 @@ export const setBucketTagging = action({
   },
 });
 
-async function bucketUsage(
-  ctx: QueryCtx,
-  bucketId: Id<"buckets">,
-) {
+/** Action: remove bucket CORS configuration (owner/admin only). */
+export const deleteBucketCors = action({
+  args: { id: v.id("buckets") },
+  handler: async (ctx, { id }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const b = await ctx.runQuery(internal.buckets.validateDelete, {
+      userId,
+      id,
+    });
+    await rustfs.deleteBucketCors(b.rustfsName);
+  },
+});
+
+async function bucketUsage(ctx: QueryCtx, bucketId: Id<"buckets">) {
   const rows = await ctx.db
     .query("objects")
     .withIndex("by_bucket", (q) => q.eq("bucketId", bucketId))
@@ -270,6 +307,17 @@ async function bucketUsage(
     bytes: rows.reduce((n, o) => n + o.size, 0),
   };
 }
+
+/** Validate member access to bucket (DB-only). Returns bucket for actions needing member-level access. */
+export const validateBucketAccess = internalQuery({
+  args: { userId: v.id("users"), id: v.id("buckets") },
+  handler: async (ctx, { userId, id }) => {
+    const b = await ctx.db.get(id);
+    if (!b) throw new ConvexError("Bucket not found");
+    await requireMember(ctx, userId, b.workspaceId);
+    return b;
+  },
+});
 
 /** Validate delete perms (DB-only). Returns bucket for the action. */
 export const validateDelete = internalQuery({
@@ -404,7 +452,10 @@ export const reconcileBucket = internalAction({
         real.push({ key: o.key, size: o.size, etag: o.etag });
       token = res.isTruncated ? res.nextContinuationToken : undefined;
     } while (token);
-    return await ctx.runMutation((internal as any).buckets.applyReconcile, { id, real });
+    return await ctx.runMutation((internal as any).buckets.applyReconcile, {
+      id,
+      real,
+    });
   },
 });
 
@@ -449,9 +500,7 @@ export const resolveBucketByRustfsName = internalQuery({
   handler: async (ctx, { rustfsName }) => {
     return ctx.db
       .query("buckets")
-      .withIndex("by_rustfsName", (q) =>
-        q.eq("rustfsName", rustfsName),
-      )
+      .withIndex("by_rustfsName", (q) => q.eq("rustfsName", rustfsName))
       .unique();
   },
 });
@@ -462,9 +511,7 @@ export const workspaceRustfsNames = internalQuery({
   handler: async (ctx, { workspaceId }) => {
     const rows = await ctx.db
       .query("buckets")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", workspaceId),
-      )
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .collect();
     return rows.map((b) => b.rustfsName);
   },

@@ -175,9 +175,11 @@ export default function BillingSettings() {
                         </span>
                       )}
                       on:{" "}
-                      {new Date(
-                        user.subscription.currentPeriodEnd ?? 0 * 1000,
-                      ).toLocaleDateString("en-US")}
+                      {user.subscription.currentPeriodEnd
+                        ? new Date(
+                            user.subscription.currentPeriodEnd,
+                          ).toLocaleDateString("en-US")
+                        : "—"}
                       .
                     </p>
                   </div>

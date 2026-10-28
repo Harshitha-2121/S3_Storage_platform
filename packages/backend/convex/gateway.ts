@@ -15,47 +15,28 @@
 // are NEVER returned to any client.
 
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
-import { signature, sha256Hex, UNSIGNED_PAYLOAD } from "./sigv4";
 import { timingSafeEqual } from "./credCrypto";
+import { UNSIGNED_PAYLOAD, canonicalRequest, sha256Hex, signature, signRequest } from "./sigv4";
+import { S3ProtocolError, decodeXmlBody, parseCompleteMultipart, parseDeleteObjects, parseTagging, parseVersioning, readS3Body, validateCors, validateS3Route, validateTags, validateVersionId } from "./s3Protocol";
 import {
   bucketFromPath,
   s3ActionForRequest,
   storageErrorMessage,
 } from "./storageValidate";
-import type { Id } from "./_generated/dataModel";
 
 const EMPTY_HASH =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-const MAX_GATEWAY_BYTES = () =>
-  Number(process.env.S3_GATEWAY_MAX_BYTES ?? "10485760"); // 10 MiB
+const MAX_GATEWAY_BYTES = () => {
+  const limit = Number(process.env.S3_GATEWAY_MAX_BYTES ?? "10485760");
+  return Number.isSafeInteger(limit) && limit > 0 ? limit : 10485760;
+};
 
 const GATEWAY_PREFIX = "/s3/";
 
-// In-memory TTL caches to eliminate Convex cold-start isolation roundtrip latency
-// Kept at 10 seconds to ensure prompt enforcement of credential revocation / bucket changes
-const CACHE_TTL_MS = 10 * 1000; // 10 seconds
-const credCache = new Map<string, { data: any; expiresAt: number }>();
-const bucketCache = new Map<string, { data: any; expiresAt: number }>();
-
-function getCached<T>(cache: Map<string, { data: T; expiresAt: number }>, key: string): T | undefined {
-  const item = cache.get(key);
-  if (!item) return undefined;
-  if (Date.now() > item.expiresAt) {
-    cache.delete(key);
-    return undefined;
-  }
-  return item.data;
-}
-
-function setCached<T>(cache: Map<string, { data: T; expiresAt: number }>, key: string, data: T): void {
-  // Bound cache size to prevent memory leaks
-  if (cache.size > 1000) {
-    cache.clear();
-  }
-  cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-}
+// Resolve authorization on every request; revocation must not depend on TTL.
 
 // In-memory Token Bucket rate limiter per accessKeyId (DoS and brute-force protection)
 // Max burst: 120 requests; refill rate: 30 requests/second
@@ -74,7 +55,10 @@ function checkRateLimit(accessKeyId: string): boolean {
   }
   // Refill tokens
   const elapsedSec = (now - entry.lastRefill) / 1000;
-  entry.tokens = Math.min(RATE_LIMIT_CAPACITY, entry.tokens + elapsedSec * RATE_LIMIT_REFILL_PER_SEC);
+  entry.tokens = Math.min(
+    RATE_LIMIT_CAPACITY,
+    entry.tokens + elapsedSec * RATE_LIMIT_REFILL_PER_SEC,
+  );
   entry.lastRefill = now;
   if (entry.tokens >= 1) {
     entry.tokens -= 1;
@@ -83,11 +67,7 @@ function checkRateLimit(accessKeyId: string): boolean {
   return false;
 }
 
-function xmlResponse(
-  status: number,
-  code: string,
-  message: string,
-): Response {
+function xmlResponse(status: number, code: string, message: string): Response {
   const body = `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${escapeXml(message)}</Message></Error>`;
   return new Response(body, {
     status,
@@ -100,10 +80,7 @@ function xmlResponse(
 }
 
 function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 type ParsedAuth = {
@@ -115,9 +92,7 @@ type ParsedAuth = {
   signature: string;
 };
 
-function parseAuthorization(
-  auth: string,
-): ParsedAuth | null {
+function parseAuthorization(auth: string): ParsedAuth | null {
   // AWS4-HMAC-SHA256 Credential=AK/date/region/service/aws4_request, SignedHeaders=a;b, Signature=hex
   const m =
     /^AWS4-HMAC-SHA256\s+Credential=([^\/]+)\/(\d{8})\/([^\/]+)\/([^\/]+)\/aws4_request,\s*SignedHeaders=([^,]+),\s*Signature=([0-9a-f]{64})$/.exec(
@@ -187,8 +162,10 @@ async function verifyPresignedQuery(
   s3Path: string,
 ): Promise<boolean> {
   const url = new URL(req.url);
-  const query: Record<string, string | string[]> = {};
-  const searchStr = url.search.startsWith("?") ? url.search.slice(1) : url.search;
+  const query: Record<string, string | string[]> = Object.create(null);
+  const searchStr = url.search.startsWith("?")
+    ? url.search.slice(1)
+    : url.search;
   if (searchStr.length > 0) {
     for (const part of searchStr.split("&")) {
       if (!part) continue;
@@ -215,17 +192,13 @@ async function verifyPresignedQuery(
     if (host) headers.host = host;
   }
 
-  const signedHeaders = parsed.signedHeaders
-    .slice()
-    .sort()
-    .join(";");
+  const signedHeaders = parsed.signedHeaders.slice().sort().join(";");
 
   // Same original-path rule as header auth: the client signed the full
   // gateway path (including the /s3 prefix).
-  const { canonicalRequest } = await import("./sigv4");
   const cr = canonicalRequest({
     method: req.method,
-    path: s3Path,
+    path: decodeURIComponent(s3Path),
     query,
     headers,
     signedHeaders,
@@ -253,8 +226,10 @@ async function verifySigV4(
   // Build the query record from the request URL,
   // preserving repeated keys and valueless query parameters.
   const url = new URL(req.url);
-  const query: Record<string, string | string[]> = {};
-  const searchStr = url.search.startsWith("?") ? url.search.slice(1) : url.search;
+  const query: Record<string, string | string[]> = Object.create(null);
+  const searchStr = url.search.startsWith("?")
+    ? url.search.slice(1)
+    : url.search;
   if (searchStr.length > 0) {
     for (const part of searchStr.split("&")) {
       if (!part) continue;
@@ -283,21 +258,16 @@ async function verifySigV4(
   }
 
   // Declared payload hash (client-committed).
-  const declaredHash =
-    req.headers.get("x-amz-content-sha256") ?? EMPTY_HASH;
+  const declaredHash = req.headers.get("x-amz-content-sha256") ?? EMPTY_HASH;
 
-  const signedHeaders = parsed.signedHeaders
-    .slice()
-    .sort()
-    .join(";");
+  const signedHeaders = parsed.signedHeaders.slice().sort().join(";");
 
   // Reconstruct the canonical request over the ORIGINAL
   // path (including the /s3 gateway prefix) — that is
   // exactly what the client signed.
-  const { canonicalRequest } = await import("./sigv4");
   const cr = canonicalRequest({
     method: req.method,
-    path: s3Path,
+    path: decodeURIComponent(s3Path),
     query,
     headers,
     signedHeaders,
@@ -309,18 +279,26 @@ async function verifySigV4(
     date: parsed.date,
     region: parsed.region,
     service: parsed.service,
-    timestamp:
-      req.headers.get("x-amz-date") ?? "",
+    timestamp: req.headers.get("x-amz-date") ?? "",
     canonicalRequestHash: crHash,
   });
   return timingSafeEqual(sig, parsed.signature);
 }
 
 /** The S3-compatible gateway handler (registered in http.ts). */
-export async function s3Gateway(
-  ctx: ActionCtx,
-  req: Request,
-): Promise<Response> {
+export async function s3Gateway(ctx: ActionCtx, req: Request): Promise<Response> {
+  let response: Response;
+  try { response = await handleS3Request(ctx, req); }
+  catch (error) {
+    response = error instanceof S3ProtocolError
+      ? xmlResponse(error.status, error.code, error.detail)
+      : xmlResponse(500, "InternalError", "Storage operation failed");
+  }
+  if (req.method === "HEAD") return new Response(null, { status: response.status, headers: response.headers });
+  return response;
+}
+
+async function handleS3Request(ctx: ActionCtx, req: Request): Promise<Response> {
   const url = new URL(req.url);
   const originalPath = url.pathname;
 
@@ -335,7 +313,13 @@ export async function s3Gateway(
       : "/" + originalPath.slice(GATEWAY_PREFIX.length);
 
   // Security: Guard against path traversal, null bytes, backslashes, or control characters.
-  const decodedPath = decodeURIComponent(s3Path);
+  // A malformed percent-encoding is a bad request, not a server error.
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(s3Path);
+  } catch {
+    return xmlResponse(400, "InvalidURI", "Path percent-encoding is malformed");
+  }
   if (
     decodedPath.includes("\0") ||
     decodedPath.includes("\\") ||
@@ -364,11 +348,7 @@ export async function s3Gateway(
   if (authHeader) {
     const p = parseAuthorization(authHeader);
     if (!p) {
-      return xmlResponse(
-        403,
-        "AccessDenied",
-        "Malformed Authorization header",
-      );
+      return xmlResponse(403, "AccessDenied", "Malformed Authorization header");
     }
     if (p.service !== "s3") {
       return xmlResponse(
@@ -405,17 +385,9 @@ export async function s3Gateway(
     };
   }
 
-  // Resolve the application-issued credential (with in-memory TTL caching for instant warm performance).
-  let cred = getCached(credCache, parsed.accessKeyId);
-  if (!cred) {
-    cred = await ctx.runQuery(
-      internal.s3Credentials.resolveCredential,
-      { accessKeyId: parsed.accessKeyId },
-    );
-    if (cred) {
-      setCached(credCache, parsed.accessKeyId, cred);
-    }
-  }
+  const cred = await ctx.runQuery(internal.s3Credentials.resolveCredential, {
+    accessKeyId: parsed.accessKeyId,
+  });
   if (!cred) {
     return xmlResponse(
       403,
@@ -443,35 +415,33 @@ export async function s3Gateway(
 
   // Rate Limiting / DoS Protection: verify token bucket for credential
   if (!checkRateLimit(parsed.accessKeyId)) {
-    return xmlResponse(
-      429,
-      "SlowDown",
-      "Please reduce your request rate",
-    );
+    return xmlResponse(429, "SlowDown", "Please reduce your request rate");
   }
 
   // Timestamp freshness: header auth rejects >15 min skew;
   // presigned URLs expire per X-Amz-Expires.
   if (queryAuth) {
     const t = Date.parse(
-      queryAuth.timestamp.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, "$1-$2-$3T$4:$5:$6Z"),
+      queryAuth.timestamp.replace(
+        /(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/,
+        "$1-$2-$3T$4:$5:$6Z",
+      ),
     );
     if (
       !Number.isFinite(t) ||
       Date.now() > t + queryAuth.expires * 1000 ||
       t - Date.now() > 15 * 60 * 1000
     ) {
-      return xmlResponse(
-        403,
-        "AccessDenied",
-        "The presigned URL has expired",
-      );
+      return xmlResponse(403, "AccessDenied", "The presigned URL has expired");
     }
   } else {
     const amzDate = req.headers.get("x-amz-date");
     if (amzDate) {
       const t = Date.parse(
-        amzDate.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, "$1-$2-$3T$4:$5:$6Z"),
+        amzDate.replace(
+          /(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/,
+          "$1-$2-$3T$4:$5:$6Z",
+        ),
       );
       if (Number.isFinite(t) && Math.abs(Date.now() - t) > 15 * 60 * 1000) {
         return xmlResponse(
@@ -484,9 +454,13 @@ export async function s3Gateway(
   }
 
   // Mark the credential as used (best-effort).
-  void ctx.runMutation(internal.s3Credentials.touchCredential, {
-    id: cred.id,
-  }).catch(() => {});
+  void ctx
+    .runMutation(internal.s3Credentials.touchCredential, {
+      id: cred.id,
+    })
+    .catch(() => {});
+
+  validateS3Route(req.method, s3Path, url.searchParams);
 
   // --- Authorize: action + bucket scope + ownership ---
   const action = s3ActionForRequest({
@@ -509,25 +483,9 @@ export async function s3Gateway(
   // Bucket scope + ownership.
   const bucketName = bucketFromPath(s3Path);
   if (bucketName) {
-    // The bucket must belong to the credential's account (cached for fast repeated calls).
-    let bucket = getCached(bucketCache, bucketName);
-    if (!bucket) {
-      bucket = await ctx.runQuery(
-        internal.buckets.resolveBucketByRustfsName,
-        { rustfsName: bucketName },
-      );
-      if (bucket) {
-        setCached(bucketCache, bucketName, bucket);
-      }
-    }
-    if (!bucket) {
-      return xmlResponse(
-        404,
-        "NoSuchBucket",
-        "The specified bucket does not exist",
-      );
-    }
-    if (bucket.accountId !== cred.accountId) {
+    const bucket = await ctx.runQuery(internal.buckets.resolveBucketByRustfsName, { rustfsName: bucketName });
+    // Uniform response prevents cross-account bucket existence probing.
+    if (!bucket || bucket.accountId !== cred.accountId) {
       return xmlResponse(
         403,
         "AccessDenied",
@@ -552,33 +510,18 @@ export async function s3Gateway(
   // Security: Authorize CopyObject source bucket ownership and access
   const copySourceHeader = req.headers.get("x-amz-copy-source");
   if (copySourceHeader) {
-    // S3 x-amz-copy-source format: /source-bucket/source-key or source-bucket/source-key
-    const cleanedSource = copySourceHeader.startsWith("/")
-      ? copySourceHeader.slice(1)
-      : copySourceHeader;
-    const sourceSlashIdx = cleanedSource.indexOf("/");
-    const sourceBucketName =
-      sourceSlashIdx >= 0 ? cleanedSource.slice(0, sourceSlashIdx) : cleanedSource;
-
-    let srcBucket = getCached(bucketCache, sourceBucketName);
-    if (!srcBucket) {
-      srcBucket = await ctx.runQuery(
-        internal.buckets.resolveBucketByRustfsName,
-        { rustfsName: sourceBucketName },
-      );
-      if (srcBucket) {
-        setCached(bucketCache, sourceBucketName, srcBucket);
-      }
-    }
-    if (!srcBucket) {
-      return xmlResponse(
-        404,
-        "NoSuchBucket",
-        "The copy source bucket does not exist",
-      );
-    }
-    // Prevent cross-tenant CopyObject unauthorized data exfiltration
-    if (srcBucket.accountId !== cred.accountId) {
+    // Split query before decoding: an encoded '?' can be part of a key.
+    const [sourcePath, sourceQuery = ""] = copySourceHeader.split("?");
+    const sourceParams = new URLSearchParams(sourceQuery);
+    let sourceBucketName: string | null;
+    try {
+      sourceBucketName = bucketFromPath(sourcePath!);
+      if (!sourcePath!.replace(/^\//, "").includes("/")) throw new Error();
+      if (sourceParams.getAll("versionId").length > 1) throw new Error();
+      if (sourceParams.has("versionId")) validateVersionId(sourceParams.get("versionId")!);
+    } catch { return xmlResponse(400, "InvalidArgument", "Invalid copy source"); }
+    const srcBucket = sourceBucketName ? await ctx.runQuery(internal.buckets.resolveBucketByRustfsName, { rustfsName: sourceBucketName }) : null;
+    if (!srcBucket || srcBucket.accountId !== cred.accountId) {
       return xmlResponse(
         403,
         "AccessDenied",
@@ -599,45 +542,38 @@ export async function s3Gateway(
       }
     }
     // Check if credential is permitted s3:GetObject
-    if (cred.actions && cred.actions.length > 0 && !cred.actions.includes("s3:GetObject")) {
+    if (
+      cred.actions &&
+      cred.actions.length > 0 &&
+      !cred.actions.includes(sourceParams.has("versionId") ? "s3:GetObjectVersion" : "s3:GetObject")
+    ) {
       return xmlResponse(
         403,
         "AccessDenied",
-        "Credential requires s3:GetObject on the source bucket to copy",
+        "Credential lacks read access to the source object/version",
       );
     }
   }
 
   // ListBuckets is special: filter to the account's buckets.
-  const isListBuckets =
-    s3Path === "/" || s3Path === "";
+  const isListBuckets = s3Path === "/" || s3Path === "";
 
   // --- Proxy to RustFS (re-signed with root creds) ---
   try {
     // Read the body (bounded for the gateway path).
     let body: Uint8Array | undefined;
-    if (
-      req.method === "PUT" ||
-      req.method === "POST"
-    ) {
-      const buf = await req.arrayBuffer();
-      const isPartUpload = url.searchParams.has("partNumber") && url.searchParams.has("uploadId");
-      // Allow multipart parts up to 64 MiB in gateway mode, single-object PUTs to MAX_GATEWAY_BYTES
-      const maxAllowed = isPartUpload ? 64 * 1024 * 1024 : MAX_GATEWAY_BYTES();
-      if (buf.byteLength > maxAllowed) {
-        return xmlResponse(
-          413,
-          "EntityTooLarge",
-          "Gateway upload exceeds the configured maximum",
-        );
+    if (req.method === "PUT" || req.method === "POST") {
+      const isPartUpload = req.method === "PUT" && url.searchParams.has("uploadId");
+      const isXml = ["delete", "cors", "tagging", "versioning"].some((flag) => url.searchParams.has(flag)) || (req.method === "POST" && url.searchParams.has("uploadId"));
+      const maxAllowed = isXml ? 2 * 1024 * 1024 : isPartUpload ? 64 * 1024 * 1024 : MAX_GATEWAY_BYTES();
+      if (req.headers.get("x-amz-content-sha256")?.startsWith("STREAMING-") || req.headers.get("content-encoding")?.includes("aws-chunked")) {
+        return xmlResponse(501, "NotImplemented", "AWS chunk-signature streaming is not supported; send a bounded ordinary payload");
       }
-      body = new Uint8Array(buf);
+      body = await readS3Body(req, maxAllowed);
     }
 
     // Compute the actual payload hash.
-    const actualPayloadHash = body
-      ? await sha256Hex(body)
-      : EMPTY_HASH;
+    const actualPayloadHash = body ? await sha256Hex(body) : EMPTY_HASH;
 
     // Security: Payload Integrity Verification.
     // If client supplied x-amz-content-sha256 (and it's not UNSIGNED-PAYLOAD or STREAMING),
@@ -657,6 +593,25 @@ export async function s3Gateway(
       }
     }
 
+    // Validate without reserialization: preserve exact signed bytes and Quiet.
+    const q = url.searchParams;
+    if (body) {
+      if (q.has("tagging")) parseTagging(decodeXmlBody(body), s3Path.indexOf("/", 1) >= 0 && !s3Path.endsWith("/"));
+      if (q.has("versioning")) parseVersioning(decodeXmlBody(body));
+      if (q.has("cors")) validateCors(decodeXmlBody(body));
+      if (req.method === "POST" && q.has("uploadId")) parseCompleteMultipart(decodeXmlBody(body));
+      if (q.has("delete")) {
+        const batch = parseDeleteObjects(decodeXmlBody(body));
+        if (cred.actions?.length && batch.objects.some((entry) => !cred.actions!.includes(entry.versionId === undefined ? "s3:DeleteObject" : "s3:DeleteObjectVersion"))) {
+          return xmlResponse(403, "AccessDenied", "Credential lacks delete access for an entry in this batch");
+        }
+      }
+    }
+    const tagging = req.headers.get("x-amz-tagging");
+    if (tagging !== null) {
+      validateTags([...new URLSearchParams(tagging)].map(([key, value]) => ({ key, value })), true);
+      if (cred.actions?.length && !cred.actions.includes("s3:PutObjectTagging")) return xmlResponse(403, "AccessDenied", "Credential lacks object tagging access");
+    }
     const payloadHash = actualPayloadHash;
 
     const rustfsEndpoint = process.env.RUSTFS_ENDPOINT!;
@@ -713,7 +668,6 @@ export async function s3Gateway(
       }
     }
 
-    const { signRequest } = await import("./sigv4");
     const signed = await signRequest({
       method: req.method,
       url: target,
@@ -731,7 +685,10 @@ export async function s3Gateway(
       method: req.method,
       headers: signed,
       body: body as unknown as BodyInit | undefined,
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
     });
+
 
     // For HEAD requests (e.g. HeadBucket, HeadObject), never return a body.
     if (req.method === "HEAD") {
@@ -747,6 +704,9 @@ export async function s3Gateway(
             "x-amz-request-id",
             "x-amz-version-id",
             "x-amz-delete-marker",
+            "x-amz-bucket-region",
+            "x-amz-tagging-count",
+            "x-amz-copy-source-version-id",
             "accept-ranges",
           ].includes(lower)
         ) {
@@ -763,11 +723,8 @@ export async function s3Gateway(
     // account's buckets only (multi-tenant isolation).
     if (isListBuckets && upstream.ok) {
       const xmlText = await upstream.text();
-      const names = (await ctx.runQuery(
-        internal.buckets.workspaceRustfsNames,
-        { workspaceId: cred.workspaceId },
-      )) as string[];
-      const allowed = new Set<string>(names);
+      const buckets = (await ctx.runQuery(internal.s3Credentials.accountBucketIds, { accountId: cred.accountId })) as Array<{ _id: Id<"buckets">; rustfsName: string }>;
+      const allowed = new Set<string>(buckets.filter((bucket) => !cred.buckets?.length || cred.buckets.includes(bucket._id)).map((bucket) => bucket.rustfsName));
       const filtered = filterListBucketsXml(xmlText, allowed);
       return new Response(filtered, {
         status: upstream.status,
@@ -792,6 +749,9 @@ export async function s3Gateway(
           "x-amz-request-id",
           "x-amz-version-id",
           "x-amz-delete-marker",
+            "x-amz-bucket-region",
+            "x-amz-tagging-count",
+            "x-amz-copy-source-version-id",
           "accept-ranges",
         ].includes(lower) ||
         lower.startsWith("x-amz-meta-")
@@ -810,13 +770,16 @@ export async function s3Gateway(
         ? (err as { code?: string }).code
         : undefined;
     const status =
-      err && typeof err === "object" && "status" in err && typeof (err as { status?: unknown }).status === "number"
+      err &&
+      typeof err === "object" &&
+      "status" in err &&
+      typeof (err as { status?: unknown }).status === "number"
         ? (err as { status: number }).status
         : 500;
     return xmlResponse(
       status >= 400 && status < 600 ? status : 500,
       code ?? "InternalError",
-      storageErrorMessage(err),
+      err instanceof S3ProtocolError ? err.detail : status >= 500 ? "Storage operation failed" : storageErrorMessage(err),
     );
   }
 }
@@ -824,8 +787,7 @@ export async function s3Gateway(
 function corsHeaders(): Record<string, string> {
   return {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods":
-      "GET, PUT, POST, DELETE, HEAD, OPTIONS",
+    "access-control-allow-methods": "GET, PUT, POST, DELETE, HEAD, OPTIONS",
     "access-control-allow-headers": "*",
     "access-control-expose-headers":
       "ETag, x-amz-request-id, x-amz-version-id, x-amz-delete-marker",
@@ -835,10 +797,7 @@ function corsHeaders(): Record<string, string> {
 }
 
 /** Filter a ListAllMyBuckets XML to only allowed bucket names. */
-function filterListBucketsXml(
-  xml: string,
-  allowed: Set<string>,
-): string {
+function filterListBucketsXml(xml: string, allowed: Set<string>): string {
   const bucketBlocks = xml.match(/<Bucket>[\s\S]*?<\/Bucket>/g) ?? [];
   const kept = bucketBlocks.filter((b) => {
     const m = /<Name>([\s\S]*?)<\/Name>/.exec(b);

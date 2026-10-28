@@ -1,16 +1,13 @@
 import boto3
 from botocore.client import Config
 
-ENDPOINT = "http://127.0.0.1:3211/s3"
-KEY_ID = "s3973c5f62029fed2e9492243f"
-SECRET = "a1ed6fc257616f43143afc61f575109a77e587b4fda82ecb1b413c41b57afb14"
-BUCKET = "ou4ye78j-me-bucket"
+from s3_test_config import BUCKET, ENDPOINT, ACCESS_KEY, SECRET_KEY
 
 s3 = boto3.client(
     "s3",
     endpoint_url=ENDPOINT,
-    aws_access_key_id=KEY_ID,
-    aws_secret_access_key=SECRET,
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY,
     region_name="us-east-1",
     config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=60)
 )

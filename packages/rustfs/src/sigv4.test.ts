@@ -11,8 +11,8 @@ import {
   hmacHex,
   presignUrl,
   sha256Hex,
-  signature,
   signRequest,
+  signature,
   stringToSign,
   uriEncode,
 } from "./sigv4";
@@ -76,7 +76,11 @@ describe("uriEncode (AWS rules)", () => {
 describe("canonicalQuery", () => {
   test("sorts by encoded key name (prefix ordering)", () => {
     expect(
-      canonicalQuery({ "max-keys": "20", prefix: "somePrefix", marker: "someMarker" }),
+      canonicalQuery({
+        "max-keys": "20",
+        prefix: "somePrefix",
+        marker: "someMarker",
+      }),
     ).toBe("marker=someMarker&max-keys=20&prefix=somePrefix");
   });
   test("sorts a before a-b (name-prefix order, not joined-string order)", () => {
@@ -91,7 +95,7 @@ describe("canonicalQuery", () => {
     expect(canonicalQuery({ "a b": "c d" })).toBe("a%20b=c%20d");
   });
   test("encodes non-ASCII names and values (suite get-vanilla-utf8-query)", () => {
-    expect(canonicalQuery({ "ሴ": "bar" })).toBe("%E1%88%B4=bar");
+    expect(canonicalQuery({ ሴ: "bar" })).toBe("%E1%88%B4=bar");
   });
 });
 
@@ -205,7 +209,7 @@ describe("official AWS SigV4 test-suite vectors (service, 20150830)", () => {
     const cr = canonicalRequest({
       method: "GET",
       path: "/",
-      query: { "ሴ": "bar" },
+      query: { ሴ: "bar" },
       headers: { ...GET_HEADERS },
       signedHeaders: "host;x-amz-date",
       payloadHash: EMPTY_PAYLOAD_HASH,
@@ -390,18 +394,19 @@ describe("signRequest (S3-style, round-trip verifiable)", () => {
       service: "s3",
       now,
     });
-    const auth = signed.authorization;
-    const signedHeaders = /SignedHeaders=([^,]+),/.exec(auth)![1];
-    const expectedSig = /Signature=([0-9a-f]{64})$/.exec(auth)![1];
+    const auth = signed.authorization ?? "";
+    const signedHeaders = /SignedHeaders=([^,]+),/.exec(auth)?.[1] ?? "";
+    const expectedSig = /Signature=([0-9a-f]{64})$/.exec(auth)?.[1] ?? "";
     const headerMap: Record<string, string> = {};
-    for (const name of signedHeaders.split(";")) headerMap[name] = signed[name];
+    for (const name of signedHeaders.split(";"))
+      headerMap[name] = signed[name] ?? "";
     const cr = canonicalRequest({
       method: "GET",
       path: url.pathname,
       query: {},
       headers: headerMap,
       signedHeaders,
-      payloadHash: signed["x-amz-content-sha256"],
+      payloadHash: signed["x-amz-content-sha256"] ?? "",
     });
     const sig = await signature({
       secretAccessKey: credential.secretAccessKey,
@@ -415,7 +420,9 @@ describe("signRequest (S3-style, round-trip verifiable)", () => {
   });
 
   test("preserves repeated query parameters when signing", async () => {
-    const url = new URL("https://s3.example.com/bkt?Param1=value2&Param1=Value1");
+    const url = new URL(
+      "https://s3.example.com/bkt?Param1=value2&Param1=Value1",
+    );
     const signed = await signRequest({
       method: "GET",
       url,
@@ -424,18 +431,19 @@ describe("signRequest (S3-style, round-trip verifiable)", () => {
       service: "s3",
       now,
     });
-    const auth = signed.authorization;
-    const signedHeaders = /SignedHeaders=([^,]+),/.exec(auth)![1];
-    const expectedSig = /Signature=([0-9a-f]{64})$/.exec(auth)![1];
+    const auth = signed.authorization ?? "";
+    const signedHeaders = /SignedHeaders=([^,]+),/.exec(auth)?.[1] ?? "";
+    const expectedSig = /Signature=([0-9a-f]{64})$/.exec(auth)?.[1] ?? "";
     const headerMap: Record<string, string> = {};
-    for (const name of signedHeaders.split(";")) headerMap[name] = signed[name];
+    for (const name of signedHeaders.split(";"))
+      headerMap[name] = signed[name] ?? "";
     const cr = canonicalRequest({
       method: "GET",
       path: url.pathname,
       query: { Param1: ["value2", "Value1"] },
       headers: headerMap,
       signedHeaders,
-      payloadHash: signed["x-amz-content-sha256"],
+      payloadHash: signed["x-amz-content-sha256"] ?? "",
     });
     const sig = await signature({
       secretAccessKey: credential.secretAccessKey,
@@ -526,9 +534,7 @@ describe("presignUrl (query-string auth)", () => {
       extraSignedHeaders: { "Content-Type": "text/plain" },
     });
     const u = new URL(url);
-    expect(u.searchParams.get("X-Amz-SignedHeaders")).toBe(
-      "content-type;host",
-    );
+    expect(u.searchParams.get("X-Amz-SignedHeaders")).toBe("content-type;host");
     // The signature must cover the extra header: re-derive it from the
     // URL parameters plus the header the caller must send unchanged.
     const params = Object.fromEntries(u.searchParams.entries());

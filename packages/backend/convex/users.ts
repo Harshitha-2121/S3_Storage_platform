@@ -17,20 +17,18 @@ export const getUser = query({
       return;
     }
     let subscription = null;
-    try {
-      subscription = await polar.getCurrentSubscription(ctx, {
-        userId: user._id,
-      });
-    } catch {
-      // Polar is optional or unconfigured in self-hosted mode
+    if (process.env.POLAR_ORGANIZATION_TOKEN) {
+      try {
+        subscription = await polar.getCurrentSubscription(ctx, {
+          userId: user._id,
+        });
+      } catch {
+        // Polar is optional or unconfigured in self-hosted mode
+      }
     }
-    // If username is not set, synthesize a default username from email or userId
-    // so new users bypass onboarding directly into their dashboard.
-    const defaultUsername = user.username || (user.email ? user.email.split("@")[0].replace(/[^a-zA-Z0-9_-]/g, "_") : `user_${user._id.slice(-6)}`);
     return {
       ...user,
-      username: defaultUsername,
-      name: user.username || user.name || defaultUsername,
+      name: user.username || user.name,
       subscription,
       avatarUrl: user.imageId
         ? await ctx.storage.getUrl(user.imageId)

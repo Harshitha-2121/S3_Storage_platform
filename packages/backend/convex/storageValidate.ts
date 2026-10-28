@@ -32,11 +32,7 @@ export function bucketNameError(name: string): string | null {
 // Object keys: non-empty, reasonable length, no leading slash, no
 // control characters. Slashes are allowed (they act as "folders").
 export function isValidObjectKey(key: string): boolean {
-  if (
-    typeof key !== "string" ||
-    key.length === 0 ||
-    key.length > 1024
-  )
+  if (typeof key !== "string" || key.length === 0 || key.length > 1024)
     return false;
   if (key.startsWith("/") || key.endsWith("/")) return false;
   if (key.includes("//")) return false;
@@ -68,6 +64,7 @@ export function accountNameError(name: string): string | null {
 
 // --- S3 action vocabulary used for credential scoping ---
 export const S3_ACTIONS = [
+  "s3:ListAllMyBuckets",
   "s3:ListBucket",
   "s3:GetObject",
   "s3:PutObject",
@@ -87,6 +84,9 @@ export const S3_ACTIONS = [
   "s3:DeleteObjectTagging",
   "s3:GetObjectVersion",
   "s3:DeleteObjectVersion",
+  "s3:GetObjectVersionTagging",
+  "s3:PutObjectVersionTagging",
+  "s3:DeleteObjectVersionTagging",
 ] as const;
 export type S3Action = (typeof S3_ACTIONS)[number];
 
@@ -137,9 +137,9 @@ export function s3ActionForRequest(opts: {
 
   // Object-level operation.
   if (query.has("tagging")) {
-    if (method === "GET") return "s3:GetObjectTagging";
-    if (method === "PUT") return "s3:PutObjectTagging";
-    if (method === "DELETE") return "s3:DeleteObjectTagging";
+    if (method === "GET") return query.has("versionId") ? "s3:GetObjectVersionTagging" : "s3:GetObjectTagging";
+    if (method === "PUT") return query.has("versionId") ? "s3:PutObjectVersionTagging" : "s3:PutObjectTagging";
+    if (method === "DELETE") return query.has("versionId") ? "s3:DeleteObjectVersionTagging" : "s3:DeleteObjectTagging";
   }
   if (query.has("uploads")) {
     if (method === "POST") return "s3:PutObject";
@@ -171,9 +171,9 @@ export function bucketFromPath(path: string): string | null {
 
 /** Extract the object key from an S3 path-style request path. */
 export function keyFromPath(path: string): string | null {
-  const seg = path.split("/").filter(Boolean);
-  if (seg.length < 2) return null;
-  return seg.slice(1).map(decodeURIComponent).join("/");
+  const slash = path.indexOf("/", path.startsWith("/") ? 1 : 0);
+  if (slash < 0 || slash === path.length - 1) return null;
+  return decodeURIComponent(path.slice(slash + 1));
 }
 
 // --- Quota helpers ---
@@ -205,9 +205,7 @@ export function privateBucketNameForUser(opts: {
   email?: string;
   userId: string;
 }): string {
-  const clean = (opts.username ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
+  const clean = (opts.username ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   if (clean.length >= 3) return `${clean.slice(0, 40)}-storage`;
   const emailPrefix = (opts.email ?? "")
     .split("@")[0]
@@ -215,13 +213,14 @@ export function privateBucketNameForUser(opts: {
     .replace(/[^a-z0-9]/g, "");
   if (emailPrefix && emailPrefix.length >= 3)
     return `${emailPrefix.slice(0, 40)}-storage`;
-  return `user-${opts.userId.slice(-8).toLowerCase().replace(/[^a-z0-9]/g, "")}-storage`;
+  return `user-${opts.userId
+    .slice(-8)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")}-storage`;
 }
 
 // --- Error mapping: RustfsError / storage error → user message ---
-export function storageErrorMessage(
-  err: unknown,
-): string {
+export function storageErrorMessage(err: unknown): string {
   if (err && typeof err === "object" && "code" in err) {
     const e = err as { code?: string; message?: string; status?: number };
     switch (e.code) {

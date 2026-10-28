@@ -1,48 +1,64 @@
 import { Email } from "@convex-dev/auth/providers/Email";
-import { internal } from "./_generated/api";
+import {
+  authDevFallbackEnabled,
+  authEmailProviderConfigured,
+  dispatchAuthEmail,
+  handleAuthDeliveryFailure,
+  logAuthEmailGenerated,
+  logDevFallbackCode,
+} from "./authEmailDelivery";
 
-// Email providers for password-reset and email-verification codes.
-// The code is logged (dev fallback) AND, when SMTP is configured, emailed via the
-// Node SMTP action (e.g. a local Mailpit inbox).
+// Email providers for password-reset and email-verification codes using Ollastack API.
 
-type Ctx = { runAction: (ref: unknown, args: unknown) => Promise<unknown> };
+type Ctx = {
+  runAction?: (ref: unknown, args: unknown) => Promise<unknown>;
+  scheduler?: {
+    runAfter: (delay: number, ref: unknown, args: unknown) => Promise<unknown>;
+  };
+};
 
 function genCode() {
-  const b = new Uint8Array(6);
+  const b = new Uint8Array(8);
   crypto.getRandomValues(b);
   return Array.from(b, (x) => (x % 10).toString()).join("");
 }
+
 async function send(
-  ctx: { runAction?: (ref: unknown, args: unknown) => Promise<unknown>; scheduler?: { runAfter: (delay: number, ref: unknown, args: unknown) => Promise<unknown> } } | undefined,
+  ctx: Ctx | undefined,
   label: string,
   email: string,
   token: string,
 ) {
-  console.warn(`[auth] ${label} code for ${email}: ${token}`); // dev fallback
-  if (process.env.RESEND_API_KEY || process.env.SMTP_HOST) {
-    try {
-      if (ctx?.runAction) {
-        await ctx.runAction(internal.email.sendEmail, {
-          to: email,
-          subject: `Your ${label} code`,
-          text: `Your ${label} code is ${token}`,
-        });
-      } else if (ctx?.scheduler) {
-        await ctx.scheduler.runAfter(0, internal.email.sendEmail, {
-          to: email,
-          subject: `Your ${label} code`,
-          text: `Your ${label} code is ${token}`,
-        });
-      }
-    } catch (e) {
-      console.warn(`[email] ${label} send error for ${email}: ${(e as Error).message}`);
+  if (!authEmailProviderConfigured()) {
+    if (authDevFallbackEnabled()) {
+      logDevFallbackCode(label, email, token);
+      return;
     }
+    handleAuthDeliveryFailure(
+      label,
+      email,
+      new Error("Email provider not configured (OLLASTACK_API_KEY missing)"),
+    );
+    return;
+  }
+
+  logAuthEmailGenerated(label, email);
+
+  try {
+    await dispatchAuthEmail(
+      ctx,
+      email,
+      `Your ${label} code`,
+      `Your ${label} code is: ${token}\n\nThis code expires in 15 minutes.`,
+    );
+  } catch (e) {
+    handleAuthDeliveryFailure(label, email, e);
   }
 }
 
-export const ResendOTPVerify = Email({
+export const OllastackOTPVerify = Email({
   id: "verify-otp",
-  apiKey: process.env.RESEND_API_KEY,
+  apiKey: process.env.OLLASTACK_API_KEY,
   maxAge: 60 * 15,
   generateVerificationToken: async () => genCode(),
   sendVerificationRequest: async (
@@ -51,9 +67,9 @@ export const ResendOTPVerify = Email({
   ) => send(ctx, "email verification", identifier, token),
 });
 
-export const ResendOTPReset = Email({
+export const OllastackOTPReset = Email({
   id: "password-reset",
-  apiKey: process.env.RESEND_API_KEY,
+  apiKey: process.env.OLLASTACK_API_KEY,
   maxAge: 60 * 15,
   generateVerificationToken: async () => genCode(),
   sendVerificationRequest: async (
@@ -61,3 +77,8 @@ export const ResendOTPReset = Email({
     ctx?: Ctx,
   ) => send(ctx, "password reset", identifier, token),
 });
+
+/** Backward compatibility aliases */
+export const ResendOTPVerify = OllastackOTPVerify;
+export const ResendOTPReset = OllastackOTPReset;
+

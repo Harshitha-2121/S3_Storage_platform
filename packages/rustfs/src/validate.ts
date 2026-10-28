@@ -39,7 +39,8 @@ export function validateFullBucketName(name: string): string | null {
     return "Bucket name must be 3–63 characters.";
   if (!FULL_BUCKET_RE.test(name))
     return "Bucket name must be lowercase letters, numbers, hyphens and dots, starting and ending with a letter or number.";
-  if (IPV4_RE.test(name)) return "Bucket name must not be formatted as an IP address.";
+  if (IPV4_RE.test(name))
+    return "Bucket name must not be formatted as an IP address.";
   return null;
 }
 
@@ -58,15 +59,17 @@ export function validateObjectKey(key: string): string | null {
   const segments = key.split("/");
   if (segments.some((s) => s === ".."))
     return "Object key must not contain '..' path segments.";
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f\x7f]/.test(key))
+  if (
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberate - the rule's job here is to REJECT control characters in object keys.
+    /[\x00-\x1f\x7f]/.test(key)
+  )
     return "Object key must not contain control characters.";
   return null;
 }
 
 /** Format a byte count for the dashboard (B / KB / MB / GB / TB). */
 export function formatBytes(n: number): string {
-  if (!Number.isFinite(n) || n < 0) n = 0;
+  const bytes = !Number.isFinite(n) || n < 0 ? 0 : n;
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let value = n / 1024;
@@ -91,5 +94,7 @@ export function genToken(bytes: number): string {
 
 /** RFC 3339 UTC timestamp for service-account expiration. */
 export function rfc3339(fromNowMs: number): string {
-  return new Date(Date.now() + fromNowMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return new Date(Date.now() + fromNowMs)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z");
 }

@@ -9,6 +9,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   action,
   internalAction,
@@ -17,19 +18,14 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { audit } from "./auditLog";
 import { bump } from "./counters";
-import { rustfs } from "./rustfsHelpers";
-import {
-  isValidObjectKey,
-  objectKeyError,
-} from "./storageValidate";
-import type { Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireMember, requireRole } from "./orgs";
+import { rustfs } from "./rustfsHelpers";
+import { isValidObjectKey, objectKeyError } from "./storageValidate";
 
-const PRESIGN_TTL = () =>
-  Number(process.env.S3_PRESIGN_TTL ?? "300");
+const PRESIGN_TTL = () => Number(process.env.S3_PRESIGN_TTL ?? "300");
 
 async function assertWritable(
   ctx: MutationCtx,
@@ -54,17 +50,13 @@ async function accountBytes(
 ): Promise<number> {
   const buckets = await ctx.db
     .query("buckets")
-    .withIndex("by_account", (q) =>
-      q.eq("accountId", accountId),
-    )
+    .withIndex("by_account", (q) => q.eq("accountId", accountId))
     .collect();
   let total = 0;
   for (const bk of buckets) {
     const rows = await ctx.db
       .query("objects")
-      .withIndex("by_bucket", (q) =>
-        q.eq("bucketId", bk._id),
-      )
+      .withIndex("by_bucket", (q) => q.eq("bucketId", bk._id))
       .collect();
     total += rows.reduce((n, o) => n + o.size, 0);
   }
@@ -301,11 +293,13 @@ export const listObjects = action({
       continuationToken: args.continuationToken,
       maxKeys: Math.min(args.maxKeys ?? 100, 1000),
     });
-    const contentTypes: Record<string, string | undefined> =
-      await ctx.runQuery((internal as any).objects.getContentTypes, {
+    const contentTypes: Record<string, string | undefined> = await ctx.runQuery(
+      (internal as any).objects.getContentTypes,
+      {
         bucketId: args.bucketId,
         keys: res.objects.map((o) => o.key),
-      });
+      },
+    );
     return {
       objects: res.objects.map((o) => ({
         key: o.key,
@@ -388,8 +382,12 @@ export const removeObjectRecord = internalMutation({
 
 /** Issue a short-lived presigned GET URL for download. Action (HEAD is network). */
 export const createDownloadUrl = action({
-  args: { bucketId: v.id("buckets"), key: v.string() },
-  handler: async (ctx, { bucketId, key }) => {
+  args: {
+    bucketId: v.id("buckets"),
+    key: v.string(),
+    versionId: v.optional(v.string()),
+  },
+  handler: async (ctx, { bucketId, key, versionId }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
     const keyErr = objectKeyError(key);
@@ -398,34 +396,119 @@ export const createDownloadUrl = action({
       userId,
       bucketId,
     });
-    const head = await rustfs.headObject(b.rustfsName, key);
+    const head = await rustfs.headObject(b.rustfsName, key, versionId);
     if (!head) throw new ConvexError("Object not found");
-    const url = await rustfs.presignGet(b.rustfsName, key, PRESIGN_TTL());
+    const url = await rustfs.presignGet(
+      b.rustfsName,
+      key,
+      PRESIGN_TTL(),
+      versionId,
+    );
     await ctx.runMutation((internal as any).objects.recordDownload, {
       userId,
       bucketId,
       key,
     });
-    return { url, expiresIn: PRESIGN_TTL(), size: head.size };
+    return {
+      url,
+      expiresIn: PRESIGN_TTL(),
+      size: head.size,
+      versionId: head.versionId,
+    };
   },
 });
 
 /** Delete an object (RustFS + Convex metadata). Action (network allowed). */
 export const deleteObject = action({
-  args: { bucketId: v.id("buckets"), key: v.string() },
-  handler: async (ctx, { bucketId, key }) => {
+  args: {
+    bucketId: v.id("buckets"),
+    key: v.string(),
+    versionId: v.optional(v.string()),
+  },
+  handler: async (ctx, { bucketId, key, versionId }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
     const b = await ctx.runQuery((internal as any).objects.getBucketForUser, {
       userId,
       bucketId,
     });
-    await rustfs.deleteObject(b.rustfsName, key);
-    await ctx.runMutation((internal as any).objects.removeObjectRecord, {
+    const res = await rustfs.deleteObject(b.rustfsName, key, versionId);
+    if (!versionId) {
+      await ctx.runMutation((internal as any).objects.removeObjectRecord, {
+        userId,
+        bucketId,
+        key,
+      });
+    }
+    return res;
+  },
+});
+
+/** List object versions from RustFS. Action (network allowed). */
+export const listObjectVersions = action({
+  args: {
+    bucketId: v.id("buckets"),
+    prefix: v.optional(v.string()),
+    delimiter: v.optional(v.string()),
+    keyMarker: v.optional(v.string()),
+    versionIdMarker: v.optional(v.string()),
+    maxKeys: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const b: any = await ctx.runQuery((internal as any).objects.getBucketForUser, {
+      userId,
+      bucketId: args.bucketId,
+    });
+    return await rustfs.listObjectVersions(b.rustfsName, {
+      prefix: args.prefix,
+      delimiter: args.delimiter,
+      keyMarker: args.keyMarker,
+      versionIdMarker: args.versionIdMarker,
+      maxKeys: args.maxKeys,
+    });
+  },
+});
+
+/** Get object tags from RustFS. Action (network allowed). */
+export const getObjectTagging = action({
+  args: {
+    bucketId: v.id("buckets"),
+    key: v.string(),
+    versionId: v.optional(v.string()),
+  },
+  handler: async (ctx, { bucketId, key, versionId }): Promise<any> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const b: any = await ctx.runQuery((internal as any).objects.getBucketForUser, {
       userId,
       bucketId,
-      key,
     });
+    return await rustfs.getObjectTagging(b.rustfsName, key, versionId);
+  },
+});
+
+/** Set object tags in RustFS. Action (network allowed). */
+export const setObjectTagging = action({
+  args: {
+    bucketId: v.id("buckets"),
+    key: v.string(),
+    tags: v.array(v.object({ key: v.string(), value: v.string() })),
+    versionId: v.optional(v.string()),
+  },
+  handler: async (ctx, { bucketId, key, tags, versionId }): Promise<void> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new ConvexError("Not authenticated");
+    const b: any = await ctx.runQuery((internal as any).objects.getBucketForUser, {
+      userId,
+      bucketId,
+    });
+    if (tags.length === 0) {
+      await rustfs.deleteObjectTagging(b.rustfsName, key, versionId);
+    } else {
+      await rustfs.putObjectTagging(b.rustfsName, key, tags, versionId);
+    }
   },
 });
 
@@ -566,6 +649,8 @@ export const copyObject = action({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
+    if (!isValidObjectKey(args.key))
+      throw new ConvexError("Invalid source key");
     if (!isValidObjectKey(args.destKey))
       throw new ConvexError("Invalid destination key");
     const { src, dest, destQuota, destUsed } = await ctx.runQuery(
@@ -607,6 +692,8 @@ export const renameObject = action({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new ConvexError("Not authenticated");
+    if (!isValidObjectKey(args.key))
+      throw new ConvexError("Invalid source key");
     if (!isValidObjectKey(args.destKey))
       throw new ConvexError("Invalid destination key");
     const b = await ctx.runQuery((internal as any).objects.getBucketForUser, {

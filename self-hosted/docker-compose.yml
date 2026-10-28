@@ -5,9 +5,9 @@ services:
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
-      - "${PORT:-3210}:3210"
-      - "${SITE_PROXY_PORT:-3211}:3211"
-      - "${OIDC_FIX_PORT:-3220}:3220"
+      - "127.0.0.1:${PORT:-3210}:3210"
+      - "127.0.0.1:${SITE_PROXY_PORT:-3211}:3211"
+      - "127.0.0.1:${OIDC_FIX_PORT:-3220}:3220"
     volumes:
       - data:/convex/data
     environment:
@@ -36,7 +36,7 @@ services:
       - INSTANCE_SECRET
       - MYSQL_URL
       - POSTGRES_URL
-      - REDACT_LOGS_TO_CLIENT
+      - REDACT_LOGS_TO_CLIENT=${REDACT_LOGS_TO_CLIENT:-true}
       - RUST_BACKTRACE
       - RUST_LOG=${RUST_LOG:-info}
       - S3_ENDPOINT_URL
@@ -85,8 +85,8 @@ services:
     stop_grace_period: 30s
     stop_signal: SIGINT
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - rustfs-data:/data
     environment:
@@ -102,7 +102,7 @@ services:
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
-      - "${DASHBOARD_PORT:-6791}:6791"
+      - "127.0.0.1:${DASHBOARD_PORT:-6791}:6791"
     environment:
       - NEXT_PUBLIC_DEPLOYMENT_URL=${NEXT_PUBLIC_DEPLOYMENT_URL:-http://127.0.0.1:${PORT:-3210}}
       - NEXT_PUBLIC_LOAD_MONACO_INTERNALLY

@@ -136,24 +136,24 @@
       "requiredMessage": "Skipping this step will disable error reporting in the app."
     },
     {
-      "title": "Resend",
-      "description": "Resend is a transactional email platform used to handle subscription related emails in the app.",
-      "instructions": "Create an account at https://resend.com and get your API key.",
+      "title": "Ollastack",
+      "description": "Ollastack is a transactional email and mailbox platform used to handle authentication and OTP delivery.",
+      "instructions": "Create an account at https://login.ollastack.com and obtain your API key.",
       "variables": [
         {
-          "name": "RESEND_API_KEY",
+          "name": "OLLASTACK_API_KEY",
           "projects": ["convex"],
-          "details": "Find your API key in the Resend dashboard under 'API Keys'. It starts with 're_'."
+          "details": "Find your API key in the Ollastack dashboard."
         },
         {
-          "name": "RESEND_SENDER_EMAIL_AUTH",
+          "name": "OLLASTACK_MAILBOX_ID",
           "projects": ["convex"],
-          "details": "This should be the email address you want to use as the sender for authentication emails. Make sure it's verified in your Resend account under 'Domains'. If not provided, you'll only be able to send emails to the address on your Resend account.",
+          "details": "The mailbox ID to send from. If omitted, the first available mailbox is automatically used.",
           "required": false
         }
       ],
       "required": false,
-      "requiredMessage": "Resend is required for subscription emails, but the app can run initially without it for testing purposes."
+      "requiredMessage": "Ollastack is required for email delivery, but the app can run initially without it in development mode (AUTH_DEV_FALLBACK=1)."
     },
     {
       "title": "Cal.com",

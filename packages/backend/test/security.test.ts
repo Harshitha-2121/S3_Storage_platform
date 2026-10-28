@@ -2,12 +2,15 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../convex/_generated/api";
-import schema from "../convex/schema";
 import { requireMember, requireRole } from "../convex/orgs";
+import schema from "../convex/schema";
 
 // Discover function modules for convex-test (convex/ tree, including
 // _generated, excluding *.test.ts).
-const modules = import.meta.glob(["../convex/**/*.*s", "!../convex/**/*.test.*"]);
+const modules = import.meta.glob([
+  "../convex/**/*.*s",
+  "!../convex/**/*.test.*",
+]);
 
 // Identity helper — getAuthUserId reads `subject = userId|sessionId`.
 const as = (userId: string) => ({ subject: `${userId}|sess_${userId}` });
@@ -44,7 +47,9 @@ describe("authorization helpers", () => {
     const { ws, outsider, member } = await seedWorkspace(t);
     await t.run(async (ctx) => {
       await expect(requireMember(ctx, member, ws)).resolves.toBeTruthy();
-      await expect(requireMember(ctx, outsider, ws)).rejects.toThrow(/Forbidden/);
+      await expect(requireMember(ctx, outsider, ws)).rejects.toThrow(
+        /Forbidden/,
+      );
     });
   });
 
@@ -52,8 +57,12 @@ describe("authorization helpers", () => {
     const t = convexTest(schema, modules);
     const { ws, owner, member } = await seedWorkspace(t);
     await t.run(async (ctx) => {
-      await expect(requireRole(ctx, owner, ws, ["owner"])).resolves.toBeTruthy();
-      await expect(requireRole(ctx, member, ws, ["owner"])).rejects.toThrow(/Forbidden/);
+      await expect(
+        requireRole(ctx, owner, ws, ["owner"]),
+      ).resolves.toBeTruthy();
+      await expect(requireRole(ctx, member, ws, ["owner"])).rejects.toThrow(
+        /Forbidden/,
+      );
     });
   });
 });
@@ -62,18 +71,20 @@ describe("member management (RBAC + integrity)", () => {
   test("removeMember refuses to remove the owner", async () => {
     const t = convexTest(schema, modules);
     const { ws, owner } = await seedWorkspace(t);
-    const ownerMemberRow = await t.run(async (ctx) =>
-      (
-        await ctx.db
-          .query("members")
-          .withIndex("by_workspace", (q) => q.eq("workspaceId", ws))
-          .collect()
-      ).find((m) => m.role === "owner")?._id,
+    const ownerMemberRow = await t.run(
+      async (ctx) =>
+        (
+          await ctx.db
+            .query("members")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", ws))
+            .collect()
+        ).find((m) => m.role === "owner")?._id,
     );
     await expect(
-      t
-        .withIdentity(as(owner))
-        .mutation(api.orgs.removeMember, { workspaceId: ws, memberId: ownerMemberRow! }),
+      t.withIdentity(as(owner)).mutation(api.orgs.removeMember, {
+        workspaceId: ws,
+        memberId: ownerMemberRow!,
+      }),
     ).rejects.toThrow(/owner/i);
   });
 
@@ -81,9 +92,10 @@ describe("member management (RBAC + integrity)", () => {
     const t = convexTest(schema, modules);
     const { ws, member, memberRow } = await seedWorkspace(t);
     await expect(
-      t
-        .withIdentity(as(member))
-        .mutation(api.orgs.removeMember, { workspaceId: ws, memberId: memberRow }),
+      t.withIdentity(as(member)).mutation(api.orgs.removeMember, {
+        workspaceId: ws,
+        memberId: memberRow,
+      }),
     ).rejects.toThrow(/Forbidden/);
   });
 
@@ -92,13 +104,27 @@ describe("member management (RBAC + integrity)", () => {
     const { ws, owner, memberRow } = await seedWorkspace(t);
     const asOwner = t.withIdentity(as(owner));
     await expect(
-      asOwner.mutation(api.orgs.changeRole, { workspaceId: ws, memberId: memberRow, role: "owner" }),
+      asOwner.mutation(api.orgs.changeRole, {
+        workspaceId: ws,
+        memberId: memberRow,
+        role: "owner",
+      }),
     ).rejects.toThrow(/Invalid role/);
     await expect(
-      asOwner.mutation(api.orgs.changeRole, { workspaceId: ws, memberId: memberRow, role: "superuser" }),
+      asOwner.mutation(api.orgs.changeRole, {
+        workspaceId: ws,
+        memberId: memberRow,
+        role: "superuser",
+      }),
     ).rejects.toThrow(/Invalid role/);
-    await asOwner.mutation(api.orgs.changeRole, { workspaceId: ws, memberId: memberRow, role: "admin" });
-    const role = await t.run(async (ctx) => (await ctx.db.get(memberRow))?.role);
+    await asOwner.mutation(api.orgs.changeRole, {
+      workspaceId: ws,
+      memberId: memberRow,
+      role: "admin",
+    });
+    const role = await t.run(
+      async (ctx) => (await ctx.db.get(memberRow))?.role,
+    );
     expect(role).toBe("admin");
   });
 });
@@ -134,7 +160,10 @@ describe("jobs.complete idempotency (webhook replay defense)", () => {
         updatedAt: Date.now(),
       }),
     );
-    await t.mutation(internal.jobs.complete, { jobId, result: { second: true } });
+    await t.mutation(internal.jobs.complete, {
+      jobId,
+      result: { second: true },
+    });
     const job = await t.run(async (ctx) => ctx.db.get(jobId));
     expect(job?.result).toEqual({ first: true });
     expect(job?.status).toBe("done");
@@ -155,17 +184,48 @@ describe("cross-tenant isolation matrix (outsider vs workspace)", () => {
           paginationOpts: { numItems: 5, cursor: null },
         }),
     ],
-    ["jobs.create", (b, ws) => b.mutation(api.jobs.create, { workspaceId: ws, kind: "x", input: {} })],
-    ["apiKeys.listMine", (b, ws) => b.query(api.apiKeys.listMine, { workspaceId: ws })],
-    ["apiKeys.create", (b, ws) => b.action(api.apiKeys.create, { workspaceId: ws, name: "x" })],
+    [
+      "jobs.create",
+      (b, ws) =>
+        b.mutation(api.jobs.create, { workspaceId: ws, kind: "x", input: {} }),
+    ],
+    [
+      "apiKeys.listMine",
+      (b, ws) => b.query(api.apiKeys.listMine, { workspaceId: ws }),
+    ],
+    [
+      "apiKeys.create",
+      (b, ws) => b.action(api.apiKeys.create, { workspaceId: ws, name: "x" }),
+    ],
     ["orgs.members", (b, ws) => b.query(api.orgs.members, { workspaceId: ws })],
-    ["orgs.invite", (b, ws) => b.mutation(api.orgs.invite, { workspaceId: ws, email: "x@x.test", role: "member" })],
-    ["orgs.pendingInvites", (b, ws) => b.query(api.orgs.pendingInvites, { workspaceId: ws })],
+    [
+      "orgs.invite",
+      (b, ws) =>
+        b.mutation(api.orgs.invite, {
+          workspaceId: ws,
+          email: "x@x.test",
+          role: "member",
+        }),
+    ],
+    [
+      "orgs.pendingInvites",
+      (b, ws) => b.query(api.orgs.pendingInvites, { workspaceId: ws }),
+    ],
     ["usage.mine", (b, ws) => b.query(api.usage.mine, { workspaceId: ws })],
     ["audit.recent", (b, ws) => b.query(api.audit.recent, { workspaceId: ws })],
     ["files.list", (b, ws) => b.query(api.files.list, { workspaceId: ws })],
-    ["files.listPaged", (b, ws) => b.query(api.files.listPaged, { workspaceId: ws, paginationOpts: { numItems: 5, cursor: null } })],
-    ["files.generateUploadUrl", (b, ws) => b.mutation(api.files.generateUploadUrl, { workspaceId: ws })],
+    [
+      "files.listPaged",
+      (b, ws) =>
+        b.query(api.files.listPaged, {
+          workspaceId: ws,
+          paginationOpts: { numItems: 5, cursor: null },
+        }),
+    ],
+    [
+      "files.generateUploadUrl",
+      (b, ws) => b.mutation(api.files.generateUploadUrl, { workspaceId: ws }),
+    ],
   ];
   for (const [name, call] of cases) {
     test(`outsider is denied: ${name}`, async () => {
@@ -179,7 +239,9 @@ describe("cross-tenant isolation matrix (outsider vs workspace)", () => {
 describe("maintained counters (dashboard.stats stays O(1) + correct)", () => {
   test("create workspace/job + complete keeps counters accurate", async () => {
     const t = convexTest(schema, modules);
-    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "c@t.test" }));
+    const userId = await t.run((ctx) =>
+      ctx.db.insert("users", { email: "c@t.test" }),
+    );
     const u = t.withIdentity(as(userId));
 
     const ws = await u.mutation(api.orgs.createWorkspace, { name: "C" });
@@ -187,7 +249,11 @@ describe("maintained counters (dashboard.stats stays O(1) + correct)", () => {
     expect(s?.members).toBe(1); // owner
     expect(s?.jobs).toBe(0);
 
-    await u.mutation(api.jobs.create, { workspaceId: ws, kind: "demo", input: {} });
+    await u.mutation(api.jobs.create, {
+      workspaceId: ws,
+      kind: "demo",
+      input: {},
+    });
     s = await u.query(api.dashboard.stats, { workspaceId: ws });
     expect(s?.jobs).toBe(1);
     expect(s?.openJobs).toBe(1);

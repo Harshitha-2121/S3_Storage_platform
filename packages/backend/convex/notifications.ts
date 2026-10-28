@@ -43,7 +43,9 @@ export const unreadCount = query({
     // most 10 unread rows is enough — O(10) instead of O(all notifications).
     const rows = await ctx.db
       .query("notifications")
-      .withIndex("by_user_read", (q) => q.eq("userId", userId).eq("read", false))
+      .withIndex("by_user_read", (q) =>
+        q.eq("userId", userId).eq("read", false),
+      )
       .take(10);
     return rows.length;
   },
@@ -56,8 +58,9 @@ export const markAllRead = mutation({
     if (!userId) return;
     const unread = await ctx.db
       .query("notifications")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .filter((q) => q.eq(q.field("read"), false))
+      .withIndex("by_user_read", (q) =>
+        q.eq("userId", userId).eq("read", false),
+      )
       .collect();
     for (const n of unread) await ctx.db.patch(n._id, { read: true });
   },

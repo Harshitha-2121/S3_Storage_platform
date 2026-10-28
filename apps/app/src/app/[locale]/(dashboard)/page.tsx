@@ -14,7 +14,7 @@ function Stat({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: number | undefined;
+  value: number | string | undefined;
   sub?: string;
 }) {
   return (
@@ -33,7 +33,8 @@ function fmtBytes(bytes: number) {
   if (!bytes) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
@@ -52,7 +53,9 @@ export default function Home() {
       <div className="mx-auto w-full max-w-screen-xl space-y-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-xl font-medium text-primary">S3 Cloud Storage Dashboard</h1>
+            <h1 className="text-xl font-medium text-primary">
+              S3 Cloud Storage Dashboard
+            </h1>
             <p className="text-sm text-primary/60">
               Multi-tenant object storage platform powered by Convex and RustFS.
             </p>
@@ -75,8 +78,8 @@ export default function Home() {
           <Stat
             icon={Activity}
             label="Stored Volume"
-            value={stats ? (stats.storageBytes as any) : undefined}
-            sub={fmtBytes(stats?.storageBytes ?? 0)}
+            value={stats ? fmtBytes(stats.storageBytes ?? 0) : undefined}
+            sub={`${stats?.buckets ?? 0} buckets`}
           />
           <Stat
             icon={Users}
@@ -89,7 +92,9 @@ export default function Home() {
         <div className="rounded-lg border border-border bg-card">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3">
             <Activity className="h-4 w-4 text-primary/50" />
-            <h2 className="text-sm font-medium text-primary">Recent activity</h2>
+            <h2 className="text-sm font-medium text-primary">
+              Recent activity
+            </h2>
           </div>
           <div className="divide-y divide-border/50">
             {visibleAudit === undefined ? (

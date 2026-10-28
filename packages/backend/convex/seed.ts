@@ -67,7 +67,9 @@ export const profileStats = internalQuery({
         .collect(),
       ctx.db
         .query("usage")
-        .withIndex("by_workspace_metric", (q) => q.eq("workspaceId", workspaceId))
+        .withIndex("by_workspace_metric", (q) =>
+          q.eq("workspaceId", workspaceId),
+        )
         .collect(),
     ]);
     return {
@@ -86,7 +88,10 @@ export const profileUnreadOld = internalQuery({
       .query("notifications")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
-    return { rowsRead: rows.length, unread: rows.filter((n) => !n.read).length };
+    return {
+      rowsRead: rows.length,
+      unread: rows.filter((n) => !n.read).length,
+    };
   },
 });
 
@@ -119,7 +124,9 @@ export const profileUnreadNew = internalQuery({
     requireDevSeed();
     const rows = await ctx.db
       .query("notifications")
-      .withIndex("by_user_read", (q) => q.eq("userId", userId).eq("read", false))
+      .withIndex("by_user_read", (q) =>
+        q.eq("userId", userId).eq("read", false),
+      )
       .take(10);
     return { rowsRead: rows.length };
   },

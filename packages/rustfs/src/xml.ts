@@ -58,8 +58,8 @@ export function parseListObjectsV2(
 ): ParsedObjectListing {
   const objects: ParsedObject[] = [];
   const contents = /<Contents>([\s\S]*?)<\/Contents>/g;
-  let match: RegExpExecArray | null;
-  while ((match = contents.exec(xml)) !== null) {
+  let match: RegExpExecArray | null = contents.exec(xml);
+  while (match !== null) {
     const block = match[1] ?? "";
     const key = /<Key>([\s\S]*?)<\/Key>/.exec(block);
     if (!key) continue;
@@ -72,6 +72,7 @@ export function parseListObjectsV2(
       etag: etag ? unescapeXml(etag[1] ?? "") : "",
       lastModified: lastModified?.[1] ?? "",
     });
+    match = contents.exec(xml);
   }
   const prefix = /<Prefix>([\s\S]*?)<\/Prefix>/.exec(xml);
   const truncated = /<IsTruncated>([\s\S]*?)<\/IsTruncated>/.exec(xml);

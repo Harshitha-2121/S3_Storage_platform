@@ -94,7 +94,11 @@ export default function OnboardingUsername() {
   }, [user, submitted]);
 
   if (!user) {
-    return null;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   // Success screen: private storage is ready (or the error, if provisioning
@@ -138,16 +142,16 @@ export default function OnboardingUsername() {
             </p>
             <p className="mt-2 text-xs text-primary/60">
               Save it now — it cannot be shown again. Use endpoint{" "}
-              <span className="font-mono">http://127.0.0.1:3211/s3/</span> with
-              any S3-compatible client.
+              <span className="font-mono">
+                {typeof window !== "undefined"
+                  ? `${window.location.protocol}//${window.location.hostname}:${process.env.NEXT_PUBLIC_S3_GATEWAY_PORT ?? "3211"}/s3/`
+                  : "http://127.0.0.1:3211/s3/"}
+              </span>{" "}
+              with any S3-compatible client.
             </p>
           </div>
         )}
-        <Button
-          size="sm"
-          className="w-full"
-          onClick={() => router.push("/")}
-        >
+        <Button size="sm" className="w-full" onClick={() => router.push("/")}>
           Continue to dashboard
         </Button>
       </div>

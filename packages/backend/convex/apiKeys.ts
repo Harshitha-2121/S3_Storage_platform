@@ -17,7 +17,10 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 async function sha256Hex(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(s),
+  );
   return toHex(new Uint8Array(buf));
 }
 function genKey(): string {
@@ -45,7 +48,9 @@ export const store = internalMutation({
       revoked: false,
       createdAt: Date.now(),
     });
-    await audit(ctx, a.workspaceId, a.userId, "apikey.create", { name: a.name });
+    await audit(ctx, a.workspaceId, a.userId, "apikey.create", {
+      name: a.name,
+    });
     return id;
   },
 });
@@ -127,7 +132,9 @@ export const revoke = mutation({
     } else if (k.userId !== userId) throw new Error("Forbidden");
     await ctx.db.patch(id, { revoked: true });
     if (k.workspaceId)
-      await audit(ctx, k.workspaceId, userId, "apikey.revoke", { name: k.name });
+      await audit(ctx, k.workspaceId, userId, "apikey.revoke", {
+        name: k.name,
+      });
   },
 });
 

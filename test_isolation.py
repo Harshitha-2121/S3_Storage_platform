@@ -2,23 +2,15 @@ import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
-ENDPOINT = "http://127.0.0.1:3211/s3"
-# Tenant 1 (Account: ms73kjtxrc0x1hbce8fcxngtn58g8shk, Workspace: m97frkfjpnbp8w2ee95r2m5d298g7ym2)
-T1_KEY = "s3973c5f62029fed2e9492243f"
-T1_SECRET = "a1ed6fc257616f43143afc61f575109a77e587b4fda82ecb1b413c41b57afb14"
-T1_BUCKET = "ou4ye78j-me-bucket"
+from s3_test_config import BUCKET, ENDPOINT, ACCESS_KEY, SECRET_KEY
 
-# Tenant 2 (Account: ms7bp3z1ysg0fjev234v39vtks8gcg33)
-T2_KEY = "s3fd48c61b1cff95902d319562"
-T2_SECRET = "cb272a27571d0e51ee1ca61e71239c02ffbe6e8e815e98585eefb6088ae63ef8"
-T2_BUCKET = "anaapuwp-harshitha" # from provisioning: ms7bp3z1ysg0fjev234v39vtks8gcg33
-
-# Let's test with T1 client trying to access T2 or an unauthorized bucket
+# Tenant 1 credential from the environment. This suite verifies that the
+# credential cannot reach buckets it does not own (see s3_test_config.py).
 s3_t1 = boto3.client(
     "s3",
     endpoint_url=ENDPOINT,
-    aws_access_key_id=T1_KEY,
-    aws_secret_access_key=T1_SECRET,
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY,
     region_name="us-east-1",
     config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, connect_timeout=5, read_timeout=15)
 )

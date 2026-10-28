@@ -6,7 +6,7 @@ import { notify } from "./notifications";
 import type { Id } from "./_generated/dataModel";
 
 /**
- * Email sender via Resend API.
+ * Email sender via Ollastack API.
  *
  * Optional attribution (notifyUserId + workspaceId + context) routes the
  * outcome where the actor can see it: every send writes an audit row, and
@@ -23,45 +23,67 @@ export const sendEmail = internalAction({
     context: v.optional(v.string()),
   },
   handler: async (ctx, { to, subject, text, notifyUserId, workspaceId, context }) => {
-    const apiKey = process.env.RESEND_API_KEY;
+    const apiKey = process.env.OLLASTACK_API_KEY;
     if (!apiKey) {
-      console.warn("[email] RESEND_API_KEY not set, logging only:");
-      console.log(`[email] to: ${to}, subject: ${subject}, text: ${text}`);
+      console.warn("[email] OLLASTACK_API_KEY not set, logging recipient/subject only:");
+      console.log(`[email] to: ${to}, subject: ${subject}`);
       return;
     }
     const label = context ?? "Email";
+    const baseUrl = process.env.OLLASTACK_API_URL ?? "https://login.ollastack.com";
+
+    // Resolve target mailbox
+    let mailboxId = process.env.OLLASTACK_MAILBOX_ID;
+    if (!mailboxId) {
+      try {
+        const mbRes = await fetch(`${baseUrl}/api/mailboxes?limit=1`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (mbRes.ok) {
+          const mbData = (await mbRes.json()) as {
+            data?: { mailboxes?: Array<{ id: string }> };
+          };
+          mailboxId = mbData?.data?.mailboxes?.[0]?.id;
+        }
+      } catch {
+        // Fall back to default
+      }
+      if (!mailboxId) {
+        mailboxId = "default";
+      }
+    }
+
     try {
-      const res = await fetch("https://api.resend.com/emails", {
+      const res = await fetch(`${baseUrl}/api/mailboxes/${mailboxId}/send`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: process.env.RESEND_SENDER_EMAIL_AUTH ?? "onboarding@resend.dev",
           to,
           subject,
           text,
         }),
       });
+
       if (!res.ok) {
-        const err = await res.text();
-        console.error(`[email] Resend error: ${res.status} ${err}`);
-        let parsedMessage = `Email delivery failed (${res.status})`;
+        const errText = await res.text();
+        let errMessage = errText;
         try {
-          const errJson = JSON.parse(err);
-          if (errJson?.message) {
-            parsedMessage = errJson.message;
-          }
-        } catch {}
-        throw new Error(parsedMessage);
+          const parsed = JSON.parse(errText) as { error?: { message?: string } };
+          if (parsed?.error?.message) errMessage = parsed.error.message;
+        } catch {
+          // Keep raw error text
+        }
+        console.warn(`[email] Ollastack delivery notice (${res.status}): ${errMessage}`);
+        throw new Error(`Ollastack send failed (${res.status}): ${errMessage}`);
       }
-      // Log the Resend message id so delivery can be traced in the
-      // Resend dashboard (Emails log) per recipient.
+
       let messageId = "unknown";
       try {
-        const data = (await res.json()) as { id?: string };
-        if (data.id) messageId = data.id;
+        const data = (await res.json()) as { data?: { id?: string } };
+        if (data?.data?.id) messageId = data.data.id;
       } catch {
         // Non-JSON receipt: keep the send itself successful.
       }
@@ -124,7 +146,7 @@ export const recordEmailResult = internalMutation({
         a.notifyUserId,
         "email",
         `${a.context} email failed`,
-        `To ${a.to}: ${a.error ?? "unknown error"}. Check Logs or verify a domain at resend.com/domains.`,
+        `To ${a.to}: ${a.error ?? "unknown error"}. Check logs or verify mailbox in Ollastack dashboard.`,
       );
     }
   },

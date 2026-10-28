@@ -71,7 +71,9 @@ Desktop.ini
 # --- IDE / editor ---
 .idea/
 .vscode/
+/.claude/
 !.vscode/extensions.json
+
 *.swp
 *.swo
 *~
@@ -111,5 +113,15 @@ prg*.txt
 /self-hosted/*.db
 /self-hosted/*.sqlite*
 
+# --- Scratch / binary artifacts ---
+/cloudflared.exe
+*.png
+/b*.js
+
+/loginPage.js
+/mainApp.js
+/tunnel_login.html
+
 # --- Excel / misc ---
 *.xlsx.utf8
+

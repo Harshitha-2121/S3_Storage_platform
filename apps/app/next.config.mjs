@@ -1,3 +1,5 @@
+process.env.NODE_OPTIONS = process.env.NODE_OPTIONS || "--max-old-space-size=8192";
+
 import "./src/env.mjs";
 import { withSentryConfig } from "@sentry/nextjs";
 
@@ -10,21 +12,19 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  async rewrites() {
-    return [
-      {
-        source: "/api/convex/:path*",
-        destination: "http://127.0.0.1:3210/:path*",
-      },
-    ];
+  experimental: {
+    cpus: 1,
+    workerThreads: false,
   },
 };
 
-export default withSentryConfig(nextConfig, {
-  silent: !process.env.CI,
-  telemetry: false,
-  widenClientFileUpload: true,
-  hideSourceMaps: true,
-  disableLogger: true,
-  tunnelRoute: "/monitoring",
-});
+export default process.env.NODE_ENV === "production"
+  ? withSentryConfig(nextConfig, {
+      silent: !process.env.CI,
+      telemetry: false,
+      widenClientFileUpload: true,
+      hideSourceMaps: true,
+      disableLogger: true,
+      tunnelRoute: "/monitoring",
+    })
+  : nextConfig;

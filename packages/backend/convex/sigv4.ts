@@ -32,7 +32,7 @@ export function toHex(bytes: Uint8Array): string {
 export function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++)
-    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    out[i] = Number.parseInt(hex.substr(i * 2, 2), 16);
   return out;
 }
 
@@ -121,7 +121,7 @@ export function canonicalQuery(
 function searchParamsToQuery(
   sp: URLSearchParams,
 ): Record<string, string | string[]> {
-  const out: Record<string, string | string[]> = {};
+  const out: Record<string, string | string[]> = Object.create(null);
   for (const [k, v] of sp.entries()) {
     const prev = out[k];
     if (prev === undefined) out[k] = v;
@@ -285,7 +285,8 @@ export async function signRequest({
     .join(";");
   const cr = canonicalRequest({
     method,
-    path: url.pathname,
+    // URL.pathname is already encoded; S3 canonical URIs encode exactly once.
+    path: service === "s3" ? decodeURIComponent(url.pathname) : url.pathname,
     query: searchParamsToQuery(url.searchParams),
     headers: signed,
     signedHeaders,
@@ -340,7 +341,8 @@ export async function presignUrl({
   };
   const cr = canonicalRequest({
     method,
-    path: url.pathname,
+    // URL.pathname is already encoded; S3 canonical URIs encode exactly once.
+    path: service === "s3" ? decodeURIComponent(url.pathname) : url.pathname,
     query,
     headers: { host: url.host },
     signedHeaders: "host",
@@ -358,7 +360,7 @@ export async function presignUrl({
   const signed = new URL(url.toString());
   signed.search = "";
   for (const [k, v] of Object.entries(query)) {
-    signed.searchParams.set(k, Array.isArray(v) ? (v[0] ?? "") : v);
+    for (const value of Array.isArray(v) ? v : [v]) signed.searchParams.append(k, value);
   }
   signed.searchParams.set("X-Amz-Signature", sig);
   return signed.toString();

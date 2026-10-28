@@ -4,24 +4,22 @@
 
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
   mutation,
   query,
 } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { audit } from "./auditLog";
 import { bump } from "./counters";
-import { accountNameError } from "./storageValidate";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
 import { requireMember, requireRole } from "./orgs";
+import { accountNameError } from "./storageValidate";
 
 const CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-export async function uniqueAccountCode(
-  ctx: MutationCtx,
-): Promise<string> {
+export async function uniqueAccountCode(ctx: MutationCtx): Promise<string> {
   for (let attempt = 0; attempt < 32; attempt++) {
     let code = "";
     const bytes = crypto.getRandomValues(new Uint8Array(8));
@@ -35,10 +33,7 @@ export async function uniqueAccountCode(
   throw new ConvexError("Could not allocate a unique account code");
 }
 
-async function accountUsage(
-  ctx: QueryCtx,
-  accountId: Id<"storageAccounts">,
-) {
+async function accountUsage(ctx: QueryCtx, accountId: Id<"storageAccounts">) {
   const buckets = await ctx.db
     .query("buckets")
     .withIndex("by_account", (q) => q.eq("accountId", accountId))
@@ -80,8 +75,7 @@ export const createAccount = mutation({
       name: args.name.trim(),
       accountCode,
       status: "active",
-      storageQuotaBytes:
-        args.storageQuotaBytes ?? 50 * 1024 * 1024 * 1024, // 50 GiB
+      storageQuotaBytes: args.storageQuotaBytes ?? 50 * 1024 * 1024 * 1024, // 50 GiB
       maxBuckets: args.maxBuckets ?? 50,
       maxObjectBytes: args.maxObjectBytes ?? 5 * 1024 * 1024 * 1024, // 5 GiB
       createdAt: now,
@@ -191,12 +185,33 @@ export const updateAccount = mutation({
       if (err) throw new ConvexError(err);
       patch.name = args.name.trim();
     }
-    if (args.storageQuotaBytes !== undefined)
+    if (args.storageQuotaBytes !== undefined) {
+      if (
+        !Number.isFinite(args.storageQuotaBytes) ||
+        args.storageQuotaBytes < 0 ||
+        args.storageQuotaBytes > 5 * 1024 ** 4
+      )
+        throw new ConvexError("Invalid storage quota");
       patch.storageQuotaBytes = args.storageQuotaBytes;
-    if (args.maxBuckets !== undefined)
+    }
+    if (args.maxBuckets !== undefined) {
+      if (
+        !Number.isInteger(args.maxBuckets) ||
+        args.maxBuckets < 1 ||
+        args.maxBuckets > 1000
+      )
+        throw new ConvexError("Invalid bucket limit");
       patch.maxBuckets = args.maxBuckets;
-    if (args.maxObjectBytes !== undefined)
+    }
+    if (args.maxObjectBytes !== undefined) {
+      if (
+        !Number.isFinite(args.maxObjectBytes) ||
+        args.maxObjectBytes < 1 ||
+        args.maxObjectBytes > 5 * 1024 ** 3
+      )
+        throw new ConvexError("Invalid max object size");
       patch.maxObjectBytes = args.maxObjectBytes;
+    }
     await ctx.db.patch(args.id, patch);
     await audit(ctx, a.workspaceId, userId, "storageaccount.update", {
       accountId: args.id,

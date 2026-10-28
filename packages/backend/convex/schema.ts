@@ -181,6 +181,37 @@ export default defineSchema({
     .index("by_bucket", ["bucketId"])
     .index("by_bucket_key", ["bucketId", "key"]),
 
+  // Automatic S3 connection provisioning state for registered consumers.
+  // One row per (workspace, account, bucket, consumer, connection).
+  s3Connections: defineTable({
+    workspaceId: v.id("workspaces"),
+    accountId: v.id("storageAccounts"),
+    bucketId: v.id("buckets"),
+    userId: v.id("users"),
+    // Registered consumer identifier (server-configured, not user-selected).
+    consumerId: v.string(),
+    connectionId: v.string(),
+    // Server-controlled delivery URL for this consumer/workspace pair.
+    deliveryUrl: v.string(),
+    // The currently active credential. Undefined until first connect.
+    activeCredentialId: v.optional(v.id("s3Credentials")),
+    // Pending credential during connect/rotate; committed only after consumer
+    // acknowledgment.
+    pendingCredentialId: v.optional(v.id("s3Credentials")),
+    // Monotonically increased by the control plane. Prevents stale deliveries.
+    version: v.number(),
+    // connect / rotate / disconnect / active / failed
+    status: v.string(),
+    statusAt: v.number(),
+    errorCode: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_account", ["accountId"])
+    .index("by_connection", ["workspaceId", "consumerId", "connectionId"])
+    .index("by_active", ["activeCredentialId"])
+    .index("by_pending", ["pendingCredentialId"]),
+
   // Application-issued S3 credentials (AWS SigV4). These are DISTINCT from the
   // dashboard `sk_` API keys. The secret is stored AES-GCM encrypted (key in
   // server env) so the gateway can verify SigV4 signatures; `secretHash` is a

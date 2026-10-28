@@ -30,15 +30,23 @@ import { toast } from "sonner";
 function fmtBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 function getFileIcon(contentType?: string, name?: string) {
-  if (contentType?.startsWith("image/") || /\.(png|jpe?g|gif|svg|webp)$/i.test(name || "")) {
+  if (
+    contentType?.startsWith("image/") ||
+    /\.(png|jpe?g|gif|svg|webp)$/i.test(name || "")
+  ) {
     return ImageIcon;
   }
-  if (contentType?.includes("pdf") || contentType?.includes("text") || /\.(txt|pdf|md|json)$/i.test(name || "")) {
+  if (
+    contentType?.includes("pdf") ||
+    contentType?.includes("text") ||
+    /\.(txt|pdf|md|json)$/i.test(name || "")
+  ) {
     return FileText;
   }
   return File;
@@ -53,11 +61,22 @@ export default function BucketDetailPage() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const bucket = useQuery(api.buckets.getBucket, bucketId ? { id: bucketId } : "skip");
+  const bucket = useQuery(
+    api.buckets.getBucket,
+    bucketId ? { id: bucketId } : "skip",
+  );
   const listObjects = useAction(api.objects.listObjects);
-  const [objectsData, setObjectsData] = useState<{
-    objects: { key: string; size: number; etag?: string; contentType?: string }[];
-  } | undefined>(undefined);
+  const [objectsData, setObjectsData] = useState<
+    | {
+        objects: {
+          key: string;
+          size: number;
+          etag?: string;
+          contentType?: string;
+        }[];
+      }
+    | undefined
+  >(undefined);
 
   const createUploadUrl = useMutation(api.objects.createUploadUrl);
   const completeUpload = useAction(api.objects.completeUpload);
@@ -134,7 +153,9 @@ export default function BucketDetailPage() {
       });
       window.open(url, "_blank");
     } catch (err: any) {
-      toast.error(err?.data ?? err?.message ?? "Failed to generate download URL");
+      toast.error(
+        err?.data ?? err?.message ?? "Failed to generate download URL",
+      );
     }
   };
 
@@ -161,7 +182,12 @@ export default function BucketDetailPage() {
         toast.error("Destination must differ from the source key");
         return;
       }
-      await copyObject({ bucketId, key, destBucketId: bucketId, destKey: clean });
+      await copyObject({
+        bucketId,
+        key,
+        destBucketId: bucketId,
+        destKey: clean,
+      });
       await refreshObjects();
       toast.success(`Copied "${key}" to "${clean}"`);
     } catch (err: any) {
@@ -197,7 +223,7 @@ export default function BucketDetailPage() {
 
   const objects = objectsData?.objects || [];
   const filteredObjects = objects.filter((o) =>
-    o.key.toLowerCase().includes(search.toLowerCase())
+    o.key.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (
@@ -218,9 +244,12 @@ export default function BucketDetailPage() {
                 <Database className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h1 className="font-mono text-xl font-medium text-primary">{bucket.name}</h1>
+                <h1 className="font-mono text-xl font-medium text-primary">
+                  {bucket.name}
+                </h1>
                 <p className="font-mono text-xs text-primary/50">
-                  Target: {bucket.rustfsName} • Created {new Date(bucket.createdAt).toLocaleDateString()}
+                  Target: {bucket.rustfsName} • Created{" "}
+                  {new Date(bucket.createdAt).toLocaleDateString()}
                 </p>
               </div>
             </div>
@@ -288,7 +317,9 @@ export default function BucketDetailPage() {
               <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono bg-primary/10 text-primary">
                 Configured
               </span>
-              <span className="text-xs text-primary/50">Native S3 API Enabled</span>
+              <span className="text-xs text-primary/50">
+                Native S3 API Enabled
+              </span>
             </div>
           </div>
 
@@ -306,7 +337,9 @@ export default function BucketDetailPage() {
               <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono bg-primary/10 text-primary">
                 Active
               </span>
-              <span className="text-xs text-primary/50">Put/Get/Delete Supported</span>
+              <span className="text-xs text-primary/50">
+                Put/Get/Delete Supported
+              </span>
             </div>
           </div>
 
@@ -324,7 +357,9 @@ export default function BucketDetailPage() {
               <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono bg-emerald-500/10 text-emerald-500 font-medium">
                 Active
               </span>
-              <span className="text-xs text-primary/50">S3 XML Specification</span>
+              <span className="text-xs text-primary/50">
+                S3 XML Specification
+              </span>
             </div>
           </div>
         </div>
@@ -334,7 +369,9 @@ export default function BucketDetailPage() {
           <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <FolderOpen className="h-4 w-4 text-primary/60" />
-              <h2 className="text-sm font-medium text-primary">Objects ({objects.length})</h2>
+              <h2 className="text-sm font-medium text-primary">
+                Objects ({objects.length})
+              </h2>
             </div>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-primary/40" />
@@ -350,12 +387,16 @@ export default function BucketDetailPage() {
 
           <div className="divide-y divide-border/50">
             {objectsData === undefined ? (
-              <div className="p-8 text-center text-sm text-primary/40">Loading objects from RustFS...</div>
+              <div className="p-8 text-center text-sm text-primary/40">
+                Loading objects from RustFS...
+              </div>
             ) : filteredObjects.length === 0 ? (
               <div className="p-8 text-center">
                 <File className="mx-auto h-8 w-8 text-primary/30 mb-2" />
                 <p className="text-sm text-primary/60">No objects found</p>
-                <p className="text-xs text-primary/40 mt-1">Upload a file to this bucket using the button above.</p>
+                <p className="text-xs text-primary/40 mt-1">
+                  Upload a file to this bucket using the button above.
+                </p>
               </div>
             ) : (
               filteredObjects.map((obj) => {
@@ -370,9 +411,12 @@ export default function BucketDetailPage() {
                         <Icon className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="font-mono text-sm font-medium text-primary">{obj.key}</p>
+                        <p className="font-mono text-sm font-medium text-primary">
+                          {obj.key}
+                        </p>
                         <p className="font-mono text-xs text-primary/50">
-                          {fmtBytes(obj.size)} • {obj.contentType || "binary"} • ETag: {obj.etag?.replace(/"/g, "")}
+                          {fmtBytes(obj.size)} • {obj.contentType || "binary"} •
+                          ETag: {obj.etag?.replace(/"/g, "")}
                         </p>
                       </div>
                     </div>
@@ -412,7 +456,9 @@ export default function BucketDetailPage() {
                         title="Delete Object?"
                         description={`Are you sure you want to delete "${obj.key}"? This action cannot be undone.`}
                         confirmLabel="Delete"
-                        label={<Trash2 className="h-3.5 w-3.5 text-destructive" />}
+                        label={
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        }
                         className="rounded-md border border-destructive/20 bg-destructive/10 p-2 hover:bg-destructive/20"
                       />
                     </div>

@@ -110,7 +110,10 @@ async function insertJob(
 export const processJob = internalAction({
   args: { jobId: v.id("jobs") },
   handler: async (ctx, { jobId }) => {
-    await ctx.runMutation(internal.jobs.setStatus, { jobId, status: "running" });
+    await ctx.runMutation(internal.jobs.setStatus, {
+      jobId,
+      status: "running",
+    });
     const job = await ctx.runQuery(internal.jobs.get, { jobId });
     if (!job) return;
     const rawBase = process.env.BACKEND_BASE_URL;
@@ -158,7 +161,11 @@ export const processJob = internalAction({
           result?: unknown;
           error?: string;
         };
-        if (body && typeof body === "object" && ("result" in body || "error" in body)) {
+        if (
+          body &&
+          typeof body === "object" &&
+          ("result" in body || "error" in body)
+        ) {
           await ctx.runMutation(internal.jobs.complete, {
             jobId,
             result: body.result,

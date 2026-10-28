@@ -29,7 +29,8 @@ async function doCall(
   body: unknown,
 ) {
   const base = process.env.BACKEND_BASE_URL;
-  if (!base) throw new Error("BACKEND_BASE_URL not set on the Convex deployment");
+  if (!base)
+    throw new Error("BACKEND_BASE_URL not set on the Convex deployment");
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
@@ -41,6 +42,7 @@ async function doCall(
       method === "GET" || method === "HEAD"
         ? undefined
         : JSON.stringify(body ?? {}),
+    signal: AbortSignal.timeout(15_000),
   });
   const text = await res.text();
   return { status: res.status, ok: res.ok, body: safeJson(text) };
